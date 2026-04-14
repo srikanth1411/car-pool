@@ -108,6 +108,13 @@ public class GroupService {
                 .stream().map(MembershipResponse::from).toList();
     }
 
+    public List<MembershipResponse> getAdminPendingRequests(String userId) {
+        return membershipRepository.findByStatusInGroupsManagedBy(userId, MembershipRole.ADMIN, MembershipStatus.PENDING)
+                .stream()
+                .filter(m -> !m.getUser().getId().equals(userId))
+                .map(MembershipResponse::from).toList();
+    }
+
     public List<GroupResponse> getMyGroups(String userId) {
         return membershipRepository.findByUserId(userId).stream()
                 .filter(m -> m.getStatus() == MembershipStatus.APPROVED)

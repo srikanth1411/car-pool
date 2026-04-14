@@ -16,6 +16,9 @@ export const groupsApi = {
   getMyPendingRequests: () =>
     apiClient.get<Membership[]>('/groups/me/pending').then((r) => r.data),
 
+  getAdminPendingRequests: () =>
+    apiClient.get<Membership[]>('/groups/me/admin-pending').then((r) => r.data),
+
   getGroupByInviteCode: (inviteCode: string) =>
     apiClient.get<Group>(`/groups/invite/${inviteCode}`).then((r) => r.data),
 

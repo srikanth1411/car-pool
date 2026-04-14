@@ -49,6 +49,12 @@ public class GroupController {
         return ResponseEntity.ok(groupService.getMyPendingRequests(user.getUsername()));
     }
 
+    @GetMapping("/me/admin-pending")
+    @Operation(summary = "Get all pending join requests in groups I admin (for dashboard)")
+    public ResponseEntity<List<MembershipResponse>> getAdminPendingRequests(@AuthenticationPrincipal UserDetails user) {
+        return ResponseEntity.ok(groupService.getAdminPendingRequests(user.getUsername()));
+    }
+
     @GetMapping("/invite/{inviteCode}")
     @Operation(summary = "Get group info and fields by invite code (no auth required)")
     public ResponseEntity<GroupResponse> getGroupByInviteCode(@PathVariable String inviteCode) {

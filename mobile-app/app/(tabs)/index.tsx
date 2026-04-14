@@ -1,12 +1,17 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import {
   View, Text, ScrollView, TouchableOpacity, StyleSheet, ActivityIndicator, Alert,
 } from 'react-native'
 import { useRouter } from 'expo-router'
+import { useFocusEffect } from 'expo-router'
+import AsyncStorage from '@react-native-async-storage/async-storage'
 import { groupsApi } from '../../src/api/groups'
 import { ridesApi } from '../../src/api/rides'
 import { useAuthStore } from '../../src/store/authStore'
 import type { Group, Ride, Membership } from '../../src/types'
+
+const NEWLY_APPROVED_KEY = 'dashboard_newly_approved_groups'
+const TRACKED_PENDING_KEY = 'dashboard_tracked_pending_groups'
 
 function RideStatusBadge({ status }: { status: Ride['status'] }) {
   const colors: Record<string, { bg: string; text: string }> = {
@@ -38,18 +43,54 @@ export default function DashboardScreen() {
   const [upcomingRides, setUpcomingRides] = useState<Ride[]>([])
   const [groups, setGroups] = useState<Group[]>([])
   const [pendingRequests, setPendingRequests] = useState<Membership[]>([])
+  const [adminPending, setAdminPending] = useState<Membership[]>([])
+  const [newlyApproved, setNewlyApproved] = useState<{ groupId: string; groupName: string }[]>([])
   const [loading, setLoading] = useState(true)
 
-  const load = async () => {
+  const load = useCallback(async () => {
     try {
-      const [grps, booked, driving, pending] = await Promise.all([
+      const [grps, booked, driving, pending, adminPend] = await Promise.all([
         groupsApi.getMyGroups(),
         ridesApi.getBookedRides(),
         user?.canDrive ? ridesApi.getMyRides() : Promise.resolve([]),
         groupsApi.getMyPendingRequests(),
+        groupsApi.getAdminPendingRequests(),
       ])
-      setPendingRequests(pending)
+
       setGroups(grps)
+      setPendingRequests(pending)
+      setAdminPending(adminPend)
+
+      // Detect newly approved groups
+      const trackedRaw = await AsyncStorage.getItem(TRACKED_PENDING_KEY)
+      const tracked: { groupId: string; groupName: string }[] = trackedRaw ? JSON.parse(trackedRaw) : []
+
+      const approvedGroupIds = new Set(grps.map(g => g.id))
+      const stillPendingIds = new Set(pending.map(m => m.groupId))
+
+      const justApproved = tracked.filter(
+        t => approvedGroupIds.has(t.groupId) && !stillPendingIds.has(t.groupId)
+      )
+
+      // Update tracked: only keep still-pending ones + add new ones
+      const newTracked = [
+        ...tracked.filter(t => stillPendingIds.has(t.groupId)),
+        ...pending
+          .filter(m => m.groupId && !tracked.some(t => t.groupId === m.groupId))
+          .map(m => ({ groupId: m.groupId!, groupName: m.groupName ?? '' })),
+      ]
+      await AsyncStorage.setItem(TRACKED_PENDING_KEY, JSON.stringify(newTracked))
+
+      // Load and merge with previously stored newly-approved
+      const prevApprovedRaw = await AsyncStorage.getItem(NEWLY_APPROVED_KEY)
+      const prevApproved: { groupId: string; groupName: string }[] = prevApprovedRaw ? JSON.parse(prevApprovedRaw) : []
+      const mergedApproved = [
+        ...prevApproved.filter(p => !justApproved.some(j => j.groupId === p.groupId)),
+        ...justApproved,
+      ]
+      await AsyncStorage.setItem(NEWLY_APPROVED_KEY, JSON.stringify(mergedApproved))
+      setNewlyApproved(mergedApproved)
+
       const allMyRides = [...booked, ...driving].filter(
         (r, i, arr) => arr.findIndex(x => x.id === r.id) === i
       )
@@ -62,9 +103,15 @@ export default function DashboardScreen() {
     } finally {
       setLoading(false)
     }
-  }
+  }, [user])
 
-  useEffect(() => { load() }, [user])
+  useFocusEffect(load)
+
+  const dismissApproved = async (groupId: string) => {
+    const updated = newlyApproved.filter(n => n.groupId !== groupId)
+    setNewlyApproved(updated)
+    await AsyncStorage.setItem(NEWLY_APPROVED_KEY, JSON.stringify(updated))
+  }
 
   const handleStart = async (rideId: string) => {
     try {
@@ -90,6 +137,17 @@ export default function DashboardScreen() {
     : 'No upcoming rides yet'
 
   const canPostRide = user?.canDrive && !currentRide && upcomingRides.length === 0
+
+  // Group admin pending by group for display
+  const adminPendingByGroup = adminPending.reduce<Record<string, { groupId: string; groupName: string; count: number }>>(
+    (acc, m) => {
+      const gid = m.groupId ?? ''
+      if (!acc[gid]) acc[gid] = { groupId: gid, groupName: m.groupName ?? '', count: 0 }
+      acc[gid].count++
+      return acc
+    },
+    {}
+  )
 
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.content}>
@@ -121,10 +179,65 @@ export default function DashboardScreen() {
             <Text style={styles.groupPillText}>👥  {groups.length} {groups.length === 1 ? 'group' : 'groups'}</Text>
           </TouchableOpacity>
 
-          {/* Pending group requests */}
+          {/* ── Newly approved ── */}
+          {newlyApproved.length > 0 && (
+            <View style={styles.section}>
+              {newlyApproved.map(n => (
+                <View key={n.groupId} style={styles.approvedCard}>
+                  <View style={styles.approvedRow}>
+                    <Text style={styles.approvedIcon}>🎉</Text>
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.approvedTitle}>You're in!</Text>
+                      <Text style={styles.approvedBody}>
+                        Your request to join <Text style={{ fontWeight: '700' }}>{n.groupName}</Text> was approved.
+                      </Text>
+                    </View>
+                    <TouchableOpacity onPress={() => dismissApproved(n.groupId)} style={styles.dismissBtn}>
+                      <Text style={styles.dismissText}>✕</Text>
+                    </TouchableOpacity>
+                  </View>
+                  <TouchableOpacity
+                    style={styles.approvedViewBtn}
+                    onPress={() => {
+                      dismissApproved(n.groupId)
+                      router.push('/(tabs)/groups')
+                    }}
+                  >
+                    <Text style={styles.approvedViewBtnText}>View group →</Text>
+                  </TouchableOpacity>
+                </View>
+              ))}
+            </View>
+          )}
+
+          {/* ── Admin: pending approvals ── */}
+          {Object.values(adminPendingByGroup).length > 0 && (
+            <View style={styles.section}>
+              <Text style={styles.sectionTitle}>📋 Pending Approvals</Text>
+              {Object.values(adminPendingByGroup).map(g => (
+                <TouchableOpacity
+                  key={g.groupId}
+                  style={styles.adminPendingCard}
+                  onPress={() => router.push(`/groups/${g.groupId}`)}
+                >
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.adminPendingGroup}>{g.groupName}</Text>
+                    <Text style={styles.adminPendingMeta}>
+                      {g.count} member request{g.count !== 1 ? 's' : ''} awaiting your approval
+                    </Text>
+                  </View>
+                  <View style={styles.adminBadge}>
+                    <Text style={styles.adminBadgeText}>{g.count}</Text>
+                  </View>
+                </TouchableOpacity>
+              ))}
+            </View>
+          )}
+
+          {/* ── Rider: pending group requests ── */}
           {pendingRequests.length > 0 && (
             <View style={styles.section}>
-              <Text style={styles.sectionTitle}>⏳ Pending Group Approvals</Text>
+              <Text style={styles.sectionTitle}>⏳ Your Group Requests</Text>
               {pendingRequests.map(req => (
                 <View key={req.id} style={styles.pendingCard}>
                   <View style={styles.pendingRow}>
@@ -139,7 +252,7 @@ export default function DashboardScreen() {
             </View>
           )}
 
-          {/* Current ride */}
+          {/* ── Current ride ── */}
           {currentRide && (
             <View style={styles.section}>
               <Text style={styles.sectionTitle}>🟢 Current Ride</Text>
@@ -164,7 +277,7 @@ export default function DashboardScreen() {
             </View>
           )}
 
-          {/* Upcoming rides */}
+          {/* ── Upcoming rides ── */}
           {upcomingRides.length > 0 && (
             <View style={styles.section}>
               <View style={styles.sectionHeader}>
@@ -196,8 +309,8 @@ export default function DashboardScreen() {
             </View>
           )}
 
-          {/* Empty state */}
-          {!currentRide && upcomingRides.length === 0 && (
+          {/* ── Empty state ── */}
+          {!currentRide && upcomingRides.length === 0 && pendingRequests.length === 0 && newlyApproved.length === 0 && (
             <View style={styles.emptyCard}>
               <Text style={styles.emptyIcon}>🚗</Text>
               <Text style={styles.emptyTitle}>No upcoming rides</Text>
@@ -246,6 +359,49 @@ const styles = StyleSheet.create({
   sectionHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 },
   sectionTitle: { fontSize: 15, fontWeight: '700', color: '#111827', marginBottom: 10 },
   seeAll: { fontSize: 13, color: '#2563eb' },
+
+  // Newly approved
+  approvedCard: {
+    backgroundColor: '#f0fdf4', borderRadius: 14, padding: 14, marginBottom: 10,
+    borderWidth: 1, borderColor: '#86efac',
+  },
+  approvedRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 10, marginBottom: 10 },
+  approvedIcon: { fontSize: 24 },
+  approvedTitle: { fontSize: 15, fontWeight: '700', color: '#15803d' },
+  approvedBody: { fontSize: 13, color: '#166534', marginTop: 2, lineHeight: 18 },
+  dismissBtn: { padding: 4 },
+  dismissText: { fontSize: 14, color: '#6b7280' },
+  approvedViewBtn: {
+    backgroundColor: '#16a34a', borderRadius: 8, paddingVertical: 8, alignItems: 'center',
+  },
+  approvedViewBtnText: { color: '#fff', fontWeight: '600', fontSize: 13 },
+
+  // Admin pending
+  adminPendingCard: {
+    flexDirection: 'row', alignItems: 'center', backgroundColor: '#fff', borderRadius: 12,
+    padding: 14, marginBottom: 8, borderWidth: 1, borderColor: '#fde68a',
+    shadowColor: '#000', shadowOpacity: 0.04, shadowRadius: 4, shadowOffset: { width: 0, height: 1 }, elevation: 1,
+  },
+  adminPendingGroup: { fontSize: 14, fontWeight: '600', color: '#111827' },
+  adminPendingMeta: { fontSize: 12, color: '#6b7280', marginTop: 2 },
+  adminBadge: {
+    backgroundColor: '#f59e0b', borderRadius: 20, minWidth: 28, height: 28,
+    alignItems: 'center', justifyContent: 'center', paddingHorizontal: 6,
+  },
+  adminBadgeText: { color: '#fff', fontWeight: '700', fontSize: 13 },
+
+  // Rider pending
+  pendingCard: {
+    backgroundColor: '#fffbeb', borderRadius: 12, padding: 14, marginBottom: 8,
+    borderWidth: 1, borderColor: '#fde68a',
+  },
+  pendingRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 },
+  pendingGroupName: { fontSize: 15, fontWeight: '600', color: '#111827', flex: 1, marginRight: 8 },
+  pendingBadge: { backgroundColor: '#fef3c7', borderRadius: 6, paddingHorizontal: 8, paddingVertical: 3, borderWidth: 1, borderColor: '#fcd34d' },
+  pendingBadgeText: { fontSize: 11, fontWeight: '600', color: '#d97706' },
+  pendingMeta: { fontSize: 12, color: '#92400e' },
+
+  // Ride cards
   card: {
     backgroundColor: '#fff', borderRadius: 14, padding: 14, marginBottom: 10,
     shadowColor: '#000', shadowOpacity: 0.05, shadowRadius: 6, shadowOffset: { width: 0, height: 2 }, elevation: 2,
@@ -282,13 +438,4 @@ const styles = StyleSheet.create({
   emptySub: { fontSize: 14, color: '#6b7280', textAlign: 'center', marginBottom: 20, lineHeight: 20 },
   emptyBtn: { backgroundColor: '#2563eb', borderRadius: 10, paddingHorizontal: 24, paddingVertical: 12 },
   emptyBtnText: { color: '#fff', fontWeight: '600', fontSize: 15 },
-  pendingCard: {
-    backgroundColor: '#fffbeb', borderRadius: 12, padding: 14, marginBottom: 8,
-    borderWidth: 1, borderColor: '#fde68a',
-  },
-  pendingRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 },
-  pendingGroupName: { fontSize: 15, fontWeight: '600', color: '#111827', flex: 1, marginRight: 8 },
-  pendingBadge: { backgroundColor: '#fef3c7', borderRadius: 6, paddingHorizontal: 8, paddingVertical: 3, borderWidth: 1, borderColor: '#fcd34d' },
-  pendingBadgeText: { fontSize: 11, fontWeight: '600', color: '#d97706' },
-  pendingMeta: { fontSize: 12, color: '#92400e' },
 })
