@@ -304,13 +304,17 @@ export default function CreateRideScreen() {
                 <Text style={styles.timeOk}>OK</Text>
               </TouchableOpacity>
             </View>
-            <DateTimePicker
-              mode="time"
-              value={pendingTime}
-              display="spinner"
-              onChange={(_e, selected) => { if (selected) setPendingTime(selected) }}
-              style={{ width: '100%' }}
-            />
+            <View style={styles.timePickerWrap}>
+              <DateTimePicker
+                mode="time"
+                value={pendingTime}
+                display="spinner"
+                themeVariant="light"
+                textColor="#111827"
+                onChange={(_e, selected) => { if (selected) setPendingTime(selected) }}
+                style={styles.timePicker}
+              />
+            </View>
           </TouchableOpacity>
         </TouchableOpacity>
       </Modal>
@@ -421,6 +425,8 @@ const styles = StyleSheet.create({
   timeSheetTitle: { fontSize: 16, fontWeight: '600', color: '#111827' },
   timeCancel: { fontSize: 15, color: '#6b7280', fontWeight: '500' },
   timeOk: { fontSize: 15, color: '#2563eb', fontWeight: '700' },
+  timePickerWrap: { alignItems: 'center', backgroundColor: '#fff', paddingVertical: 8 },
+  timePicker: { width: 200, height: 150 },
   dateRow: { flexDirection: 'row', gap: 10 },
   datePill: {
     flex: 1, borderWidth: 1, borderColor: '#d1d5db', borderRadius: 12,
