@@ -1,8 +1,9 @@
 import { useEffect, useState } from 'react'
 import {
   View, Text, ScrollView, TouchableOpacity, StyleSheet,
-  ActivityIndicator, TextInput, Alert, Switch,
+  ActivityIndicator, TextInput, Alert, Switch, Platform,
 } from 'react-native'
+import DateTimePicker, { DateTimePickerEvent } from '@react-native-community/datetimepicker'
 import { useRouter } from 'expo-router'
 import { ridesApi } from '../../src/api/rides'
 import { groupsApi } from '../../src/api/groups'
@@ -75,8 +76,13 @@ export default function CreateRideScreen() {
   const [originId, setOriginId] = useState('')
   const [destinationId, setDestinationId] = useState('')
   const [selectedStops, setSelectedStops] = useState<string[]>([])
-  const [departureDate, setDepartureDate] = useState('')
-  const [departureTime, setDepartureTime] = useState('')
+
+  // Date: 'today' | 'tomorrow' | ''
+  const [departureDateKey, setDepartureDateKey] = useState<'today' | 'tomorrow' | ''>('')
+  // Time stored as a Date object; only H:M used
+  const [departureTime, setDepartureTime] = useState<Date | null>(null)
+  const [showTimePicker, setShowTimePicker] = useState(false)
+
   const [totalSeats, setTotalSeats] = useState('3')
   const [price, setPrice] = useState('')
   const [notes, setNotes] = useState('')
@@ -112,10 +118,15 @@ export default function CreateRideScreen() {
     if (!originId) { setError('Select a start point'); return }
     if (!destinationId) { setError('Select an end point'); return }
     if (originId === destinationId) { setError('Start and end point cannot be the same'); return }
-    if (!departureDate || !departureTime) { setError('Set departure date and time'); return }
+    if (!departureDateKey) { setError('Select a departure date'); return }
+    if (!departureTime) { setError('Select a departure time'); return }
     if (saveAsPreference && !preferenceTag.trim()) { setError('Enter a preference tag name'); return }
 
-    const departureISO = new Date(`${departureDate}T${departureTime}`).toISOString()
+    const base = new Date()
+    base.setHours(0, 0, 0, 0)
+    if (departureDateKey === 'tomorrow') base.setDate(base.getDate() + 1)
+    base.setHours(departureTime.getHours(), departureTime.getMinutes(), 0, 0)
+    const departureISO = base.toISOString()
     const cleanedStops = selectedStops.filter(id => id !== originId && id !== destinationId)
 
     setSubmitting(true)
@@ -223,26 +234,53 @@ export default function CreateRideScreen() {
         </View>
       )}
 
+      {/* ── Departure date ── */}
       <View style={field.wrap}>
-        <Text style={field.label}>Departure date (YYYY-MM-DD)</Text>
-        <TextInput
-          style={field.input}
-          placeholder="e.g. 2026-04-15"
-          value={departureDate}
-          onChangeText={setDepartureDate}
-          keyboardType="numbers-and-punctuation"
-        />
+        <Text style={field.label}>Departure date</Text>
+        <View style={styles.dateRow}>
+          {(['today', 'tomorrow'] as const).map(key => {
+            const d = new Date()
+            if (key === 'tomorrow') d.setDate(d.getDate() + 1)
+            const label = key === 'today' ? 'Today' : 'Tomorrow'
+            const sub = d.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' })
+            const active = departureDateKey === key
+            return (
+              <TouchableOpacity
+                key={key}
+                style={[styles.datePill, active && styles.datePillActive]}
+                onPress={() => setDepartureDateKey(key)}
+              >
+                <Text style={[styles.datePillLabel, active && styles.datePillLabelActive]}>{label}</Text>
+                <Text style={[styles.datePillSub, active && styles.datePillSubActive]}>{sub}</Text>
+              </TouchableOpacity>
+            )
+          })}
+        </View>
       </View>
 
+      {/* ── Departure time ── */}
       <View style={field.wrap}>
-        <Text style={field.label}>Departure time (HH:MM)</Text>
-        <TextInput
-          style={field.input}
-          placeholder="e.g. 08:30"
-          value={departureTime}
-          onChangeText={setDepartureTime}
-          keyboardType="numbers-and-punctuation"
-        />
+        <Text style={field.label}>Departure time</Text>
+        <TouchableOpacity style={field.picker} onPress={() => setShowTimePicker(true)}>
+          <Text style={[field.pickerText, !departureTime && field.pickerPlaceholder]}>
+            {departureTime
+              ? departureTime.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })
+              : 'Tap to select time…'}
+          </Text>
+          <Text style={{ fontSize: 16 }}>🕐</Text>
+        </TouchableOpacity>
+        {showTimePicker && (
+          <DateTimePicker
+            mode="time"
+            value={departureTime ?? new Date()}
+            display={Platform.OS === 'ios' ? 'spinner' : 'clock'}
+            onChange={(e: DateTimePickerEvent, selected?: Date) => {
+              setShowTimePicker(Platform.OS === 'ios')
+              if (e.type === 'set' && selected) setDepartureTime(selected)
+              if (Platform.OS !== 'ios') setShowTimePicker(false)
+            }}
+          />
+        )}
       </View>
 
       <View style={field.wrap}>
@@ -336,6 +374,16 @@ const styles = StyleSheet.create({
   },
   prefLabel: { fontSize: 15, fontWeight: '500', color: '#111827' },
   prefSub: { fontSize: 12, color: '#6b7280', marginTop: 2 },
+  dateRow: { flexDirection: 'row', gap: 10 },
+  datePill: {
+    flex: 1, borderWidth: 1, borderColor: '#d1d5db', borderRadius: 12,
+    paddingVertical: 12, paddingHorizontal: 14, backgroundColor: '#fff', alignItems: 'center',
+  },
+  datePillActive: { backgroundColor: '#2563eb', borderColor: '#2563eb' },
+  datePillLabel: { fontSize: 15, fontWeight: '700', color: '#111827' },
+  datePillLabelActive: { color: '#fff' },
+  datePillSub: { fontSize: 12, color: '#6b7280', marginTop: 2 },
+  datePillSubActive: { color: '#bfdbfe' },
   errorBox: { backgroundColor: '#fef2f2', borderRadius: 8, padding: 12, marginBottom: 14 },
   errorText: { color: '#dc2626', fontSize: 13 },
   actions: { flexDirection: 'row', gap: 10 },
