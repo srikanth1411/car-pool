@@ -228,6 +228,7 @@ public class GroupService {
                              : "Your request to join " + group.getName() + " was rejected";
         notificationService.send(memberUserId, type, approve ? "Welcome!" : "Request rejected", msg,
                 Map.of("groupId", groupId));
+        notificationService.markJoinRequestNotificationRead(groupId, memberUserId);
 
         log.info("Membership {}: userId={} groupId={} by adminId={}", approve ? "approved" : "rejected",
                 memberUserId, groupId, adminUserId);

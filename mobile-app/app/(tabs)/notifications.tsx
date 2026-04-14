@@ -1,7 +1,8 @@
-import { useEffect, useState } from 'react'
+import { useState, useCallback } from 'react'
 import {
   View, Text, ScrollView, TouchableOpacity, StyleSheet, ActivityIndicator, Alert,
 } from 'react-native'
+import { useFocusEffect } from 'expo-router'
 import { notificationsApi } from '../../src/api/notifications'
 import { groupsApi } from '../../src/api/groups'
 import type { Notification } from '../../src/types'
@@ -33,11 +34,12 @@ export default function NotificationsScreen() {
   const [notifications, setNotifications] = useState<Notification[]>([])
   const [loading, setLoading] = useState(true)
 
-  const load = () => {
+  const load = useCallback(() => {
+    setLoading(true)
     notificationsApi.getAll().then(setNotifications).finally(() => setLoading(false))
-  }
+  }, [])
 
-  useEffect(() => { load() }, [])
+  useFocusEffect(load)
 
   const markAllRead = async () => {
     await notificationsApi.markAllRead()
@@ -54,8 +56,7 @@ export default function NotificationsScreen() {
     if (!groupId || !userId) return
     try {
       await groupsApi.approveMember(groupId, userId)
-      await notificationsApi.markRead(n.id)
-      setNotifications(prev => prev.map(x => x.id === n.id ? { ...x, read: true } : x))
+      setNotifications(prev => prev.filter(x => x.id !== n.id))
       Alert.alert('Approved', 'Member has been approved.')
     } catch {
       Alert.alert('Error', 'Could not approve member.')
@@ -67,8 +68,7 @@ export default function NotificationsScreen() {
     if (!groupId || !userId) return
     try {
       await groupsApi.rejectMember(groupId, userId)
-      await notificationsApi.markRead(n.id)
-      setNotifications(prev => prev.map(x => x.id === n.id ? { ...x, read: true } : x))
+      setNotifications(prev => prev.filter(x => x.id !== n.id))
       Alert.alert('Rejected', 'Member request has been rejected.')
     } catch {
       Alert.alert('Error', 'Could not reject member.')
@@ -117,7 +117,7 @@ export default function NotificationsScreen() {
                 </View>
                 <Text style={styles.itemBody} numberOfLines={2}>{n.body}</Text>
                 <Text style={styles.itemTime}>{timeAgo(n.createdAt)}</Text>
-                {n.type === 'JOIN_REQUEST_RECEIVED' && (
+                {n.type === 'JOIN_REQUEST_RECEIVED' && !n.read && (
                   <View style={styles.actionRow}>
                     <TouchableOpacity style={styles.approveBtn} onPress={() => handleApprove(n)}>
                       <Text style={styles.approveBtnText}>Approve</Text>

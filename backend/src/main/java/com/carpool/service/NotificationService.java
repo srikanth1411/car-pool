@@ -51,6 +51,17 @@ public class NotificationService {
     }
 
     @Transactional
+    public void markJoinRequestNotificationRead(String groupId, String memberUserId) {
+        notificationRepository.findByTypeAndReadFalse(NotificationType.JOIN_REQUEST_RECEIVED).stream()
+                .filter(n -> groupId.equals(n.getMetadata() != null ? n.getMetadata().get("groupId") : null)
+                          && memberUserId.equals(n.getMetadata() != null ? n.getMetadata().get("userId") : null))
+                .forEach(n -> {
+                    n.setRead(true);
+                    notificationRepository.save(n);
+                });
+    }
+
+    @Transactional
     public void send(String userId, NotificationType type, String title, String body, Map<String, String> metadata) {
         User user = userService.findUser(userId);
         Notification n = Notification.builder()
