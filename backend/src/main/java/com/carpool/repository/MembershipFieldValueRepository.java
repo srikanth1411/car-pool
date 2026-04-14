@@ -7,4 +7,5 @@ import java.util.List;
 
 public interface MembershipFieldValueRepository extends JpaRepository<MembershipFieldValue, String> {
     List<MembershipFieldValue> findByMembershipId(String membershipId);
+    void deleteByMembershipId(String membershipId);
 }

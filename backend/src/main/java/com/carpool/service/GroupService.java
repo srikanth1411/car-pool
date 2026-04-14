@@ -2,6 +2,7 @@ package com.carpool.service;
 
 import com.carpool.dto.request.*;
 import com.carpool.dto.response.*;
+import com.carpool.enums.GroupFieldType;
 import com.carpool.enums.MembershipRole;
 import com.carpool.enums.MembershipStatus;
 import com.carpool.enums.NotificationType;
@@ -34,6 +35,7 @@ public class GroupService {
     private final MembershipCommentRepository commentRepository;
     private final UserService userService;
     private final NotificationService notificationService;
+    private final UploadService uploadService;
 
     @Transactional
     public GroupResponse createGroup(String userId, CreateGroupRequest req) {
@@ -230,6 +232,10 @@ public class GroupService {
                 Map.of("groupId", groupId));
         notificationService.markJoinRequestNotificationRead(groupId, memberUserId);
 
+        if (approve) {
+            deleteApplicationFiles(membership.getId());
+        }
+
         log.info("Membership {}: userId={} groupId={} by adminId={}", approve ? "approved" : "rejected",
                 memberUserId, groupId, adminUserId);
         return MembershipResponse.from(membership);
@@ -342,6 +348,20 @@ public class GroupService {
         GroupMembership m = membershipRepository.findByUserIdAndGroupId(userId, groupId)
                 .orElseThrow(() -> new ForbiddenException("Not a member of this group"));
         if (m.getStatus() != MembershipStatus.APPROVED) throw new ForbiddenException("Membership not approved");
+    }
+
+    private void deleteApplicationFiles(String membershipId) {
+        List<MembershipFieldValue> values = fieldValueRepository.findByMembershipId(membershipId);
+        values.stream()
+                .filter(v -> {
+                    GroupFieldType type = v.getField().getFieldType();
+                    return type == GroupFieldType.PHOTO
+                        || type == GroupFieldType.ID_CARD
+                        || type == GroupFieldType.FILE;
+                })
+                .forEach(v -> uploadService.deleteFile(v.getValue()));
+        fieldValueRepository.deleteByMembershipId(membershipId);
+        log.info("Deleted application files and field values for membershipId={}", membershipId);
     }
 
     private void requireAdmin(String userId, String groupId) {

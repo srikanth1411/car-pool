@@ -1,5 +1,6 @@
 package com.carpool.service;
 
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
@@ -10,6 +11,7 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.UUID;
 
+@Slf4j
 @Service
 public class UploadService {
 
@@ -33,5 +35,18 @@ public class UploadService {
         Files.copy(file.getInputStream(), dir.resolve(filename));
 
         return "/uploads/" + filename;
+    }
+
+    public void deleteFile(String url) {
+        if (url == null || !url.startsWith("/uploads/")) return;
+        String filename = url.substring("/uploads/".length());
+        if (filename.isBlank()) return;
+        try {
+            Path file = Paths.get(uploadDir).toAbsolutePath().resolve(filename).normalize();
+            Files.deleteIfExists(file);
+            log.info("Deleted upload file: {}", filename);
+        } catch (IOException e) {
+            log.warn("Could not delete upload file {}: {}", filename, e.getMessage());
+        }
     }
 }
