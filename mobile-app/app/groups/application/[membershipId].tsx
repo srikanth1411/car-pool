@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import {
   View, Text, ScrollView, TouchableOpacity, StyleSheet,
-  ActivityIndicator, TextInput, Alert, Image, KeyboardAvoidingView, Platform,
+  ActivityIndicator, TextInput, Alert, Image,
 } from 'react-native'
 import { useLocalSearchParams, useRouter } from 'expo-router'
 import { groupsApi } from '../../../src/api/groups'
@@ -209,7 +209,7 @@ export default function ApplicationScreen() {
   if (loading) return <ActivityIndicator style={{ flex: 1 }} color="#2563eb" />
 
   return (
-    <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
+    <View style={{ flex: 1 }}>
       <ScrollView style={s.container} contentContainerStyle={s.content} keyboardShouldPersistTaps="handled">
         {/* User info */}
         <View style={s.userCard}>
@@ -270,7 +270,7 @@ export default function ApplicationScreen() {
           </View>
         </View>
       </ScrollView>
-    </KeyboardAvoidingView>
+    </View>
   )
 }
 

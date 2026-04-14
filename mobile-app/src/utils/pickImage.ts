@@ -54,6 +54,12 @@ async function launchSource(
     if (result.canceled || !result.assets?.[0]) return resolve(null)
 
     const asset = result.assets[0]
+
+    if (asset.fileSize && asset.fileSize > 5 * 1024 * 1024) {
+      Alert.alert('File too large', 'Please choose an image under 5 MB.')
+      return resolve(null)
+    }
+
     onUploading(true)
     const url = await uploadFile(asset.uri, asset.fileName ?? 'photo.jpg', asset.mimeType ?? 'image/jpeg')
     resolve(url)

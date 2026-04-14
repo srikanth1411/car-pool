@@ -2,7 +2,6 @@ import { useEffect, useState } from 'react'
 import {
   View, Text, ScrollView, TouchableOpacity, StyleSheet,
   ActivityIndicator, Alert, TextInput, Modal,
-  KeyboardAvoidingView, Platform,
 } from 'react-native'
 import { useLocalSearchParams, useRouter } from 'expo-router'
 import { ridesApi } from '../../src/api/rides'
@@ -273,7 +272,7 @@ export default function RideDetailScreen() {
 
       {/* Book seat modal */}
       <Modal visible={showBookModal} animationType="slide" transparent onRequestClose={() => setShowBookModal(false)}>
-        <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
+        <View style={{ flex: 1 }}>
         <View style={modal.overlay}>
           <ScrollView style={modal.sheet} contentContainerStyle={{ paddingBottom: 40 }} keyboardShouldPersistTaps="handled">
             <Text style={modal.title}>Request a Seat</Text>
@@ -353,7 +352,7 @@ export default function RideDetailScreen() {
             </View>
           </ScrollView>
         </View>
-        </KeyboardAvoidingView>
+        </View>
       </Modal>
     </ScrollView>
   )

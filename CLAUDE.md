@@ -12,6 +12,16 @@ After completing any task, update the relevant memory file(s) in `.claude/memory
 
 ---
 
+## Frontend Requirements (mobile-app — non-negotiable)
+
+1. **No `KeyboardAvoidingView`** — never use it anywhere. Use `ScrollView` with `keyboardShouldPersistTaps="handled"` instead.
+2. **Image uploads must offer Camera + Photo Library** — always use the shared `src/utils/pickImage.ts` → `pickAndUploadImage()`. Never inline a new `ImagePicker` call.
+3. **5 MB image size limit** — `pickAndUploadImage()` enforces this. Do not bypass it.
+
+Full detail: `.claude/memory/frontend_requirements.md`
+
+---
+
 ## Baseline Rules (apply to EVERY change)
 
 1. **Swagger** — any new or modified endpoint must have its `@Operation`, `@Tag`, and response annotations updated. Run `./mvnw spring-boot:run` mentally against the OpenAPI spec; if the contract changed, the annotation changed.

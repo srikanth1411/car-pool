@@ -3,7 +3,6 @@ import { useFocusEffect } from 'expo-router'
 import {
   View, Text, ScrollView, TouchableOpacity, StyleSheet,
   ActivityIndicator, Modal, TextInput, Alert, Switch,
-  KeyboardAvoidingView, Platform,
 } from 'react-native'
 import { useRouter } from 'expo-router'
 import { groupsApi } from '../../src/api/groups'
@@ -75,7 +74,7 @@ function CreateGroupModal({ onClose, onCreated }: { onClose: () => void; onCreat
 
   return (
     <Modal visible animationType="slide" transparent onRequestClose={onClose}>
-      <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
+      <View style={{ flex: 1 }}>
         <View style={modal.overlay}>
           <ScrollView style={modal.sheet} contentContainerStyle={{ paddingBottom: 40 }} keyboardShouldPersistTaps="handled">
             <Text style={modal.title}>New Group</Text>
@@ -159,7 +158,7 @@ function CreateGroupModal({ onClose, onCreated }: { onClose: () => void; onCreat
             </View>
           </ScrollView>
         </View>
-      </KeyboardAvoidingView>
+      </View>
     </Modal>
   )
 }
@@ -219,7 +218,7 @@ function JoinGroupModal({ onClose, onJoined }: { onClose: () => void; onJoined: 
 
   return (
     <Modal visible animationType="slide" transparent onRequestClose={onClose}>
-      <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
+      <View style={{ flex: 1 }}>
         <View style={modal.overlay}>
           <ScrollView style={modal.sheet} keyboardShouldPersistTaps="handled" contentContainerStyle={{ paddingBottom: 32 }}>
               {step === 'code' ? (
@@ -273,7 +272,7 @@ function JoinGroupModal({ onClose, onJoined }: { onClose: () => void; onJoined: 
               )}
           </ScrollView>
         </View>
-      </KeyboardAvoidingView>
+      </View>
     </Modal>
   )
 }
