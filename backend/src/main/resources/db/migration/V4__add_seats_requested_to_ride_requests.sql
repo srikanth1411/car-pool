@@ -1,0 +1,2 @@
+ALTER TABLE ride_requests
+    ADD COLUMN IF NOT EXISTS seats_requested INT NOT NULL DEFAULT 1;

@@ -1,0 +1,46 @@
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# IDE
+.idea/
+*.iml
+.vscode/
+*.swp
+*.swo
+
+# Java / Maven / Spring Boot
+backend/target/
+backend/.mvn/
+*.class
+*.jar
+*.war
+*.ear
+*.log
+backend/uploads/
+
+# Node / Expo / React Native
+mobile-app/node_modules/
+mobile-app/.expo/
+mobile-app/dist/
+mobile-app/.env
+mobile-app/.env.local
+
+# Terraform
+terraform/.terraform/
+terraform/*.tfstate
+terraform/*.tfstate.backup
+terraform/*.tfvars
+!terraform/terraform.tfvars.example
+terraform/.terraform.lock.hcl
+terraform/crash.log
+
+# Secrets / env
+.env
+.env.*
+!.env.example
+secrets/
+
+# Claude
+.claude/settings.local.json

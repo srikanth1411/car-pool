@@ -1,0 +1,10 @@
+# Copy this to terraform.tfvars and fill in your values
+aws_region  = "us-east-1"
+environment = "prod"
+
+db_username = "carpool_user"
+db_password = "CHANGE_ME_STRONG_PASSWORD"
+jwt_secret  = "CHANGE_ME_AT_LEAST_32_CHARS_LONG_SECRET"
+
+backend_image_tag  = "latest"
+frontend_image_tag = "latest"

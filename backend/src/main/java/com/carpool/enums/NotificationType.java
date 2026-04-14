@@ -1,0 +1,14 @@
+package com.carpool.enums;
+
+public enum NotificationType {
+    JOIN_REQUEST_RECEIVED,
+    JOIN_APPROVED,
+    JOIN_REJECTED,
+    RIDE_POSTED,
+    RIDE_REQUEST_RECEIVED,
+    RIDE_REQUEST_CONFIRMED,
+    RIDE_REQUEST_DECLINED,
+    RIDE_CANCELLED,
+    RIDE_STARTED,
+    CHAT_MESSAGE
+}

@@ -1,0 +1,1 @@
+ALTER TABLE rides ADD COLUMN price NUMERIC(10, 2);
