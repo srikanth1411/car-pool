@@ -1,5 +1,17 @@
 # Carpool App — Claude Context
 
+## Memory Files
+
+Project memory is stored in `.claude/memory/` (version-controlled in this repo). Read these at the start of every session:
+
+- `.claude/memory/MEMORY.md` — index of all memory entries
+- `.claude/memory/project_overview.md` — current app state: what's built, what's missing
+- `.claude/memory/feedback_baseline_rules.md` — non-negotiable baseline rules for every change
+
+After completing any task, update the relevant memory file(s) in `.claude/memory/` to reflect the new state, then commit and push them along with the code changes.
+
+---
+
 ## Baseline Rules (apply to EVERY change)
 
 1. **Swagger** — any new or modified endpoint must have its `@Operation`, `@Tag`, and response annotations updated. Run `./mvnw spring-boot:run` mentally against the OpenAPI spec; if the contract changed, the annotation changed.
