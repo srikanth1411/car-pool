@@ -17,8 +17,10 @@ public interface GroupMembershipRepository extends JpaRepository<GroupMembership
     List<GroupMembership> findByUserIdAndStatus(String userId, MembershipStatus status);
     boolean existsByUserIdAndGroupId(String userId, String groupId);
 
-    @Query("SELECT m FROM GroupMembership m WHERE m.status = :status AND m.group.id IN " +
-           "(SELECT gm.group.id FROM GroupMembership gm WHERE gm.user.id = :userId AND gm.role = :role)")
+    // Matches groups where user is the group owner OR has MembershipRole.ADMIN
+    @Query("SELECT m FROM GroupMembership m WHERE m.status = :status AND " +
+           "(m.group.owner.id = :userId OR m.group.id IN " +
+           "(SELECT gm.group.id FROM GroupMembership gm WHERE gm.user.id = :userId AND gm.role = :role))")
     List<GroupMembership> findByStatusInGroupsManagedBy(
             @Param("userId") String userId,
             @Param("role") MembershipRole role,
