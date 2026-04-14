@@ -1,9 +1,9 @@
 import { useEffect, useState } from 'react'
 import {
   View, Text, ScrollView, TouchableOpacity, StyleSheet,
-  ActivityIndicator, TextInput, Alert, Switch, Platform,
+  ActivityIndicator, TextInput, Alert, Switch, Modal,
 } from 'react-native'
-import DateTimePicker, { DateTimePickerEvent } from '@react-native-community/datetimepicker'
+import DateTimePicker from '@react-native-community/datetimepicker'
 import { useRouter } from 'expo-router'
 import { ridesApi } from '../../src/api/rides'
 import { groupsApi } from '../../src/api/groups'
@@ -82,6 +82,8 @@ export default function CreateRideScreen() {
   // Time stored as a Date object; only H:M used
   const [departureTime, setDepartureTime] = useState<Date | null>(null)
   const [showTimePicker, setShowTimePicker] = useState(false)
+  // Holds the rolling selection inside the picker until OK is pressed
+  const [pendingTime, setPendingTime] = useState<Date>(new Date())
 
   const [totalSeats, setTotalSeats] = useState('3')
   const [price, setPrice] = useState('')
@@ -261,7 +263,13 @@ export default function CreateRideScreen() {
       {/* ── Departure time ── */}
       <View style={field.wrap}>
         <Text style={field.label}>Departure time</Text>
-        <TouchableOpacity style={field.picker} onPress={() => setShowTimePicker(true)}>
+        <TouchableOpacity
+          style={field.picker}
+          onPress={() => {
+            setPendingTime(departureTime ?? new Date())
+            setShowTimePicker(true)
+          }}
+        >
           <Text style={[field.pickerText, !departureTime && field.pickerPlaceholder]}>
             {departureTime
               ? departureTime.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })
@@ -269,19 +277,43 @@ export default function CreateRideScreen() {
           </Text>
           <Text style={{ fontSize: 16 }}>🕐</Text>
         </TouchableOpacity>
-        {showTimePicker && (
-          <DateTimePicker
-            mode="time"
-            value={departureTime ?? new Date()}
-            display={Platform.OS === 'ios' ? 'spinner' : 'clock'}
-            onChange={(e: DateTimePickerEvent, selected?: Date) => {
-              setShowTimePicker(Platform.OS === 'ios')
-              if (e.type === 'set' && selected) setDepartureTime(selected)
-              if (Platform.OS !== 'ios') setShowTimePicker(false)
-            }}
-          />
-        )}
       </View>
+
+      {/* Time picker bottom sheet */}
+      <Modal
+        visible={showTimePicker}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setShowTimePicker(false)}
+      >
+        <TouchableOpacity
+          style={styles.timeOverlay}
+          activeOpacity={1}
+          onPress={() => setShowTimePicker(false)}
+        >
+          <TouchableOpacity activeOpacity={1} style={styles.timeSheet}>
+            <View style={styles.timeSheetHeader}>
+              <TouchableOpacity onPress={() => setShowTimePicker(false)}>
+                <Text style={styles.timeCancel}>Cancel</Text>
+              </TouchableOpacity>
+              <Text style={styles.timeSheetTitle}>Select Time</Text>
+              <TouchableOpacity onPress={() => {
+                setDepartureTime(pendingTime)
+                setShowTimePicker(false)
+              }}>
+                <Text style={styles.timeOk}>OK</Text>
+              </TouchableOpacity>
+            </View>
+            <DateTimePicker
+              mode="time"
+              value={pendingTime}
+              display="spinner"
+              onChange={(_e, selected) => { if (selected) setPendingTime(selected) }}
+              style={{ width: '100%' }}
+            />
+          </TouchableOpacity>
+        </TouchableOpacity>
+      </Modal>
 
       <View style={field.wrap}>
         <Text style={field.label}>Available seats</Text>
@@ -374,6 +406,21 @@ const styles = StyleSheet.create({
   },
   prefLabel: { fontSize: 15, fontWeight: '500', color: '#111827' },
   prefSub: { fontSize: 12, color: '#6b7280', marginTop: 2 },
+  timeOverlay: {
+    flex: 1, backgroundColor: 'rgba(0,0,0,0.4)', justifyContent: 'flex-end',
+  },
+  timeSheet: {
+    backgroundColor: '#fff', borderTopLeftRadius: 20, borderTopRightRadius: 20,
+    paddingBottom: 32,
+  },
+  timeSheetHeader: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    paddingHorizontal: 20, paddingVertical: 16,
+    borderBottomWidth: 1, borderBottomColor: '#f3f4f6',
+  },
+  timeSheetTitle: { fontSize: 16, fontWeight: '600', color: '#111827' },
+  timeCancel: { fontSize: 15, color: '#6b7280', fontWeight: '500' },
+  timeOk: { fontSize: 15, color: '#2563eb', fontWeight: '700' },
   dateRow: { flexDirection: 'row', gap: 10 },
   datePill: {
     flex: 1, borderWidth: 1, borderColor: '#d1d5db', borderRadius: 12,
