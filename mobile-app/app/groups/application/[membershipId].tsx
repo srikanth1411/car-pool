@@ -5,9 +5,9 @@ import {
 } from 'react-native'
 import { useLocalSearchParams, useRouter } from 'expo-router'
 import { groupsApi } from '../../../src/api/groups'
-import { uploadFile } from '../../../src/api/upload'
 import { useAuthStore } from '../../../src/store/authStore'
 import { extractError } from '../../../src/api/client'
+import { pickAndUploadImage } from '../../../src/utils/pickImage'
 import type { Application, MembershipComment } from '../../../src/types'
 
 function timeAgo(dt: string) {
@@ -58,24 +58,8 @@ function CommentThread({
   const [attachmentUrl, setAttachmentUrl] = useState('')
 
   const handlePickImage = async () => {
-    try {
-      const ImagePicker = await import('expo-image-picker')
-      const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync()
-      if (status !== 'granted') {
-        Alert.alert('Permission required', 'Please allow access to your photo library in Settings.')
-        return
-      }
-      const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ImagePicker.MediaTypeOptions.Images, quality: 0.8 })
-      if (result.canceled || !result.assets?.[0]) return
-      const asset = result.assets[0]
-      setUploading(true)
-      const url = await uploadFile(asset.uri, asset.fileName ?? 'photo.jpg', asset.mimeType ?? 'image/jpeg')
-      setAttachmentUrl(url)
-    } catch (e) {
-      Alert.alert('Upload failed', String(e))
-    } finally {
-      setUploading(false)
-    }
+    const url = await pickAndUploadImage(setUploading)
+    if (url) setAttachmentUrl(url)
   }
 
   const submitReply = async () => {
@@ -202,24 +186,8 @@ export default function ApplicationScreen() {
   }
 
   const handlePickImage = async () => {
-    try {
-      const ImagePicker = await import('expo-image-picker')
-      const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync()
-      if (status !== 'granted') {
-        Alert.alert('Permission required', 'Please allow access to your photo library in Settings.')
-        return
-      }
-      const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ImagePicker.MediaTypeOptions.Images, quality: 0.8 })
-      if (result.canceled || !result.assets?.[0]) return
-      const asset = result.assets[0]
-      setUploading(true)
-      const url = await uploadFile(asset.uri, asset.fileName ?? 'photo.jpg', asset.mimeType ?? 'image/jpeg')
-      setAttachmentUrl(url)
-    } catch (e) {
-      Alert.alert('Upload failed', String(e))
-    } finally {
-      setUploading(false)
-    }
+    const url = await pickAndUploadImage(setUploading)
+    if (url) setAttachmentUrl(url)
   }
 
   const submitComment = async () => {

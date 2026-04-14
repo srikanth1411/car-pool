@@ -9,6 +9,7 @@ import { useRouter } from 'expo-router'
 import { groupsApi } from '../../src/api/groups'
 import { useAuthStore } from '../../src/store/authStore'
 import { extractError } from '../../src/api/client'
+import { pickAndUploadImage } from '../../src/utils/pickImage'
 import type { Group, GroupField, GroupFieldType } from '../../src/types'
 
 const FIELD_TYPES: { value: GroupFieldType; label: string; icon: string }[] = [
@@ -281,27 +282,8 @@ function JoinField({ field, value, onChange }: { field: GroupField; value: strin
   const [uploading, setUploading] = useState(false)
 
   const handlePickImage = async () => {
-    try {
-      const ImagePicker = await import('expo-image-picker')
-      const { uploadFile } = await import('../../src/api/upload')
-
-      const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync()
-      if (status !== 'granted') {
-        Alert.alert('Permission required', 'Please allow access to your photo library in Settings.')
-        return
-      }
-
-      const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ImagePicker.MediaTypeOptions.Images, quality: 0.8 })
-      if (result.canceled || !result.assets?.[0]) return
-      const asset = result.assets[0]
-      setUploading(true)
-      const url = await uploadFile(asset.uri, asset.fileName ?? 'photo.jpg', asset.mimeType ?? 'image/jpeg')
-      onChange(url)
-    } catch (e) {
-      Alert.alert('Upload failed', String(e))
-    } finally {
-      setUploading(false)
-    }
+    const url = await pickAndUploadImage(setUploading)
+    if (url) onChange(url)
   }
 
   const isMedia = field.fieldType === 'PHOTO' || field.fieldType === 'ID_CARD' || field.fieldType === 'FILE'
