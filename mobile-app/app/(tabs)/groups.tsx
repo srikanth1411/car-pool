@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { useFocusEffect } from 'expo-router'
 import {
   View, Text, ScrollView, TouchableOpacity, StyleSheet,
-  ActivityIndicator, Modal, TextInput, Alert, Switch,
+  ActivityIndicator, Modal, TextInput, Alert, Switch, Image,
 } from 'react-native'
 import { useRouter } from 'expo-router'
 import { groupsApi } from '../../src/api/groups'
@@ -295,10 +295,21 @@ function JoinField({ field, value, onChange }: { field: GroupField; value: strin
       </Text>
       {isMedia ? (
         <View>
-          <TouchableOpacity style={modal.uploadBtn} onPress={handlePickImage} disabled={uploading}>
-            {uploading ? <ActivityIndicator color="#2563eb" size="small" /> : <Text style={modal.uploadBtnText}>📁 Choose file / image</Text>}
-          </TouchableOpacity>
-          {!!value && <Text style={modal.uploadedUrl} numberOfLines={1}>✓ {value.split('/').pop()}</Text>}
+          {!!value && (field.fieldType === 'PHOTO' || field.fieldType === 'ID_CARD') ? (
+            <>
+              <Image source={{ uri: value }} style={modal.previewImage} resizeMode="contain" />
+              <TouchableOpacity style={[modal.uploadBtn, { marginTop: 8 }]} onPress={handlePickImage} disabled={uploading}>
+                {uploading ? <ActivityIndicator color="#2563eb" size="small" /> : <Text style={modal.uploadBtnText}>🔄 Change photo</Text>}
+              </TouchableOpacity>
+            </>
+          ) : (
+            <>
+              <TouchableOpacity style={modal.uploadBtn} onPress={handlePickImage} disabled={uploading}>
+                {uploading ? <ActivityIndicator color="#2563eb" size="small" /> : <Text style={modal.uploadBtnText}>📁 Choose file / image</Text>}
+              </TouchableOpacity>
+              {!!value && <Text style={modal.uploadedUrl} numberOfLines={1}>✓ {value.split('/').pop()}</Text>}
+            </>
+          )}
         </View>
       ) : (
         <TextInput
@@ -445,6 +456,7 @@ const modal = StyleSheet.create({
   uploadBtn: { borderWidth: 1, borderColor: '#d1d5db', borderRadius: 10, paddingHorizontal: 14, paddingVertical: 12, alignItems: 'center', marginBottom: 6 },
   uploadBtnText: { color: '#374151', fontSize: 14 },
   uploadedUrl: { fontSize: 12, color: '#16a34a', marginBottom: 8 },
+  previewImage: { width: '100%', height: 200, borderRadius: 10, backgroundColor: '#f3f4f6' },
   error: { color: '#dc2626', fontSize: 13, marginBottom: 10 },
   actions: { flexDirection: 'row', gap: 10, marginTop: 4 },
   cancelBtn: { flex: 1, borderWidth: 1, borderColor: '#d1d5db', borderRadius: 10, paddingVertical: 12, alignItems: 'center' },

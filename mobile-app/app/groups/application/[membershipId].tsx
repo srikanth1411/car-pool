@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import {
   View, Text, ScrollView, TouchableOpacity, StyleSheet,
-  ActivityIndicator, TextInput, Alert, Image,
+  ActivityIndicator, TextInput, Alert, Image, Modal, SafeAreaView,
 } from 'react-native'
 import { useLocalSearchParams, useRouter } from 'expo-router'
 import { groupsApi } from '../../../src/api/groups'
@@ -20,7 +20,21 @@ function timeAgo(dt: string) {
   return `${Math.floor(h / 24)}d ago`
 }
 
+function FullScreenImageViewer({ uri, onClose }: { uri: string; onClose: () => void }) {
+  return (
+    <Modal visible animationType="fade" onRequestClose={onClose}>
+      <SafeAreaView style={{ flex: 1, backgroundColor: '#000' }}>
+        <TouchableOpacity style={s.fsClose} onPress={onClose}>
+          <Text style={s.fsCloseText}>✕ Close</Text>
+        </TouchableOpacity>
+        <Image source={{ uri }} style={s.fsImage} resizeMode="contain" />
+      </SafeAreaView>
+    </Modal>
+  )
+}
+
 function FieldValue({ label, type, value }: { label: string; type: string; value?: string }) {
+  const [fullScreen, setFullScreen] = useState(false)
   const isMedia = type === 'PHOTO' || type === 'ID_CARD' || type === 'FILE'
   const typeIcons: Record<string, string> = { TEXT: '✏️', EMAIL: '📧', PHOTO: '📷', ID_CARD: '🪪', FILE: '📎' }
 
@@ -33,7 +47,13 @@ function FieldValue({ label, type, value }: { label: string; type: string; value
         type === 'FILE' ? (
           <Text style={s.fieldLink} numberOfLines={1}>📎 {value.split('/').pop()}</Text>
         ) : (
-          <Image source={{ uri: value }} style={s.fieldImage} resizeMode="cover" />
+          <>
+            <TouchableOpacity onPress={() => setFullScreen(true)} activeOpacity={0.85}>
+              <Image source={{ uri: value }} style={s.fieldImage} resizeMode="contain" />
+              <Text style={s.tapHint}>Tap to view full size</Text>
+            </TouchableOpacity>
+            {fullScreen && <FullScreenImageViewer uri={value} onClose={() => setFullScreen(false)} />}
+          </>
         )
       ) : (
         <Text style={s.fieldValue}>{value}</Text>
@@ -56,6 +76,7 @@ function CommentThread({
   const [submitting, setSubmitting] = useState(false)
   const [uploading, setUploading] = useState(false)
   const [attachmentUrl, setAttachmentUrl] = useState('')
+  const [fullScreenUri, setFullScreenUri] = useState<string | null>(null)
 
   const handlePickImage = async () => {
     const url = await pickAndUploadImage(setUploading)
@@ -80,6 +101,7 @@ function CommentThread({
 
   return (
     <View style={s.commentCard}>
+      {fullScreenUri && <FullScreenImageViewer uri={fullScreenUri} onClose={() => setFullScreenUri(null)} />}
       <View style={s.commentHeader}>
         <Text style={s.commentAuthor}>{comment.author.name}</Text>
         <Text style={s.commentTime}>{timeAgo(comment.createdAt)}</Text>
@@ -87,7 +109,9 @@ function CommentThread({
       {comment.content ? <Text style={s.commentContent}>{comment.content}</Text> : null}
       {comment.attachmentUrl ? (
         comment.attachmentUrl.match(/\.(jpg|jpeg|png|gif|webp)$/i)
-          ? <Image source={{ uri: comment.attachmentUrl }} style={s.commentImage} resizeMode="cover" />
+          ? <TouchableOpacity onPress={() => setFullScreenUri(comment.attachmentUrl!)}>
+              <Image source={{ uri: comment.attachmentUrl }} style={s.commentImage} resizeMode="contain" />
+            </TouchableOpacity>
           : <Text style={s.fieldLink}>📎 {comment.attachmentUrl.split('/').pop()}</Text>
       ) : null}
 
@@ -101,7 +125,9 @@ function CommentThread({
           {reply.content ? <Text style={s.commentContent}>{reply.content}</Text> : null}
           {reply.attachmentUrl ? (
             reply.attachmentUrl.match(/\.(jpg|jpeg|png|gif|webp)$/i)
-              ? <Image source={{ uri: reply.attachmentUrl }} style={s.commentImage} resizeMode="cover" />
+              ? <TouchableOpacity onPress={() => setFullScreenUri(reply.attachmentUrl!)}>
+                  <Image source={{ uri: reply.attachmentUrl }} style={s.commentImage} resizeMode="contain" />
+                </TouchableOpacity>
               : <Text style={s.fieldLink}>📎 {reply.attachmentUrl.split('/').pop()}</Text>
           ) : null}
         </View>
@@ -124,7 +150,11 @@ function CommentThread({
             <TouchableOpacity style={s.attachBtn} onPress={handlePickImage} disabled={uploading}>
               {uploading ? <ActivityIndicator size="small" color="#6b7280" /> : <Text style={s.attachBtnText}>📷</Text>}
             </TouchableOpacity>
-            {!!attachmentUrl && <Text style={s.uploadedSmall}>✓ image</Text>}
+            {!!attachmentUrl && (
+              <TouchableOpacity onPress={() => setFullScreenUri(attachmentUrl)}>
+                <Image source={{ uri: attachmentUrl }} style={s.previewThumb} resizeMode="cover" />
+              </TouchableOpacity>
+            )}
             <TouchableOpacity style={s.sendBtn} onPress={submitReply} disabled={submitting || (!replyText.trim() && !attachmentUrl)}>
               {submitting ? <ActivityIndicator color="#fff" size="small" /> : <Text style={s.sendBtnText}>Send</Text>}
             </TouchableOpacity>
@@ -263,7 +293,9 @@ export default function ApplicationScreen() {
             <TouchableOpacity style={s.attachBtn} onPress={handlePickImage} disabled={uploading}>
               {uploading ? <ActivityIndicator size="small" color="#6b7280" /> : <Text style={s.attachBtnText}>📷</Text>}
             </TouchableOpacity>
-            {!!attachmentUrl && <Text style={s.uploadedSmall}>✓ image</Text>}
+            {!!attachmentUrl && (
+              <Image source={{ uri: attachmentUrl }} style={s.previewThumb} resizeMode="cover" />
+            )}
             <TouchableOpacity style={[s.sendBtn, (!commentText.trim() && !attachmentUrl) && { opacity: 0.5 }]} onPress={submitComment} disabled={submitting || (!commentText.trim() && !attachmentUrl)}>
               {submitting ? <ActivityIndicator color="#fff" size="small" /> : <Text style={s.sendBtnText}>Send</Text>}
             </TouchableOpacity>
@@ -292,14 +324,19 @@ const s = StyleSheet.create({
   fieldValue: { fontSize: 15, color: '#111827' },
   fieldEmpty: { fontSize: 14, color: '#9ca3af', fontStyle: 'italic' },
   fieldLink: { fontSize: 13, color: '#2563eb' },
-  fieldImage: { width: '100%', height: 180, borderRadius: 8, marginTop: 4 },
+  fieldImage: { width: '100%', height: 260, borderRadius: 8, marginTop: 4, backgroundColor: '#f3f4f6' },
+  tapHint: { fontSize: 11, color: '#9ca3af', textAlign: 'center', marginTop: 4 },
   empty: { color: '#9ca3af', fontSize: 14, fontStyle: 'italic' },
   commentCard: { backgroundColor: '#fff', borderRadius: 12, padding: 14, marginBottom: 10 },
   commentHeader: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 6 },
   commentAuthor: { fontSize: 13, fontWeight: '700', color: '#111827' },
   commentTime: { fontSize: 11, color: '#9ca3af' },
   commentContent: { fontSize: 14, color: '#374151', lineHeight: 20 },
-  commentImage: { width: '100%', height: 150, borderRadius: 8, marginTop: 8 },
+  commentImage: { width: '100%', height: 200, borderRadius: 8, marginTop: 8, backgroundColor: '#f3f4f6' },
+  previewThumb: { width: 44, height: 44, borderRadius: 6 },
+  fsImage: { flex: 1, width: '100%' },
+  fsClose: { padding: 16 },
+  fsCloseText: { color: '#fff', fontSize: 16, fontWeight: '600' },
   replyCard: { backgroundColor: '#f9fafb', borderRadius: 8, padding: 10, marginTop: 8, borderLeftWidth: 3, borderLeftColor: '#e5e7eb' },
   replyBtn: { marginTop: 8 },
   replyBtnText: { fontSize: 12, color: '#2563eb', fontWeight: '500' },
