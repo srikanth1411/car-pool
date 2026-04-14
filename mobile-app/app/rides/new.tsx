@@ -250,7 +250,13 @@ export default function CreateRideScreen() {
               <TouchableOpacity
                 key={key}
                 style={[styles.datePill, active && styles.datePillActive]}
-                onPress={() => setDepartureDateKey(key)}
+                onPress={() => {
+                  setDepartureDateKey(key)
+                  // If switching to today and the saved time is already in the past, clear it
+                  if (key === 'today' && departureTime && departureTime.getTime() < Date.now()) {
+                    setDepartureTime(null)
+                  }
+                }}
               >
                 <Text style={[styles.datePillLabel, active && styles.datePillLabelActive]}>{label}</Text>
                 <Text style={[styles.datePillSub, active && styles.datePillSubActive]}>{sub}</Text>
@@ -266,7 +272,12 @@ export default function CreateRideScreen() {
         <TouchableOpacity
           style={field.picker}
           onPress={() => {
-            setPendingTime(departureTime ?? new Date())
+            const now = new Date()
+            // For today: never seed a past time into the picker
+            const seed = departureTime && (departureDateKey !== 'today' || departureTime > now)
+              ? departureTime
+              : now
+            setPendingTime(seed)
             setShowTimePicker(true)
           }}
         >
@@ -311,6 +322,7 @@ export default function CreateRideScreen() {
                 display="spinner"
                 themeVariant="light"
                 textColor="#111827"
+                minimumDate={departureDateKey === 'today' ? new Date() : undefined}
                 onChange={(_e, selected) => { if (selected) setPendingTime(selected) }}
                 style={styles.timePicker}
               />
