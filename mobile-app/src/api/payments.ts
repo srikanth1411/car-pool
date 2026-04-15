@@ -8,6 +8,9 @@ export const paymentsApi = {
   getPaymentStatus: (rideId: string) =>
     apiClient.get<Payment>(`/payments/ride/${rideId}/status`).then((r) => r.data),
 
+  verifyPayment: (paymentId: string) =>
+    apiClient.post<Payment>(`/payments/verify/${paymentId}`).then((r) => r.data),
+
   getWallet: () =>
     apiClient.get<Wallet>('/payments/wallet').then((r) => r.data),
 }

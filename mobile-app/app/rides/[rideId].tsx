@@ -190,17 +190,34 @@ export default function RideDetailScreen() {
   }
 
   const handleWebViewNav = (navState: { url: string }) => {
-    // Detect when Cashfree redirects back to our /return page
-    if (navState.url.includes('/payments/return')) {
-      setShowPayWebView(false)
-      const success = navState.url.includes('status=PAID') || navState.url.includes('status=SUCCESS')
-      if (success) {
-        Alert.alert('Payment Successful', 'Your payment was received. The driver\'s wallet has been credited.')
-      } else {
-        Alert.alert('Payment Failed', 'Your payment could not be processed. Please try again.')
-      }
-      load()
+    if (!navState.url.includes('/payments/return')) return
+
+    // Extract paymentId from the return URL
+    const match = navState.url.match(/[?&]paymentId=([^&]+)/)
+    const pid = match ? match[1] : null
+    const isFailed = navState.url.includes('status=FAILED')
+
+    setShowPayWebView(false)
+
+    if (!pid || isFailed) {
+      Alert.alert('Payment Not Completed', 'Your payment was not completed. Please try again.')
+      return
     }
+
+    // Always verify with Cashfree API — never trust the URL status param
+    paymentsApi.verifyPayment(pid)
+      .then(result => {
+        if (result.status === 'SUCCESS') {
+          Alert.alert('Payment Successful! 🎉', `₹${ride?.price?.toFixed(2)} paid. The driver's wallet has been credited.`)
+        } else {
+          Alert.alert('Payment Pending', 'Payment not confirmed yet. If you completed the payment, please wait a moment and refresh.')
+        }
+        load()
+      })
+      .catch(() => {
+        Alert.alert('Could Not Verify', 'Payment may have gone through — please check your payment history before retrying.')
+        load()
+      })
   }
 
   const handleConfirmRequest = async (requestId: string) => {

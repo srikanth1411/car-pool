@@ -49,6 +49,15 @@ public class PaymentController {
         return ResponseEntity.ok(paymentService.getWallet(user.getUsername()));
     }
 
+    @PostMapping("/verify/{paymentId}")
+    @SecurityRequirement(name = "bearerAuth")
+    @Operation(summary = "Verify payment status with Cashfree and credit driver wallet if paid")
+    public ResponseEntity<PaymentStatusResponse> verifyPayment(
+            @AuthenticationPrincipal UserDetails user,
+            @PathVariable String paymentId) {
+        return ResponseEntity.ok(paymentService.verifyAndCreditPayment(user.getUsername(), paymentId));
+    }
+
     // ─── No-auth endpoints ──────────────────────────────────────────────────────
 
     @PostMapping("/webhook")

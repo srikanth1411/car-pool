@@ -245,6 +245,64 @@ public class PaymentService {
         });
     }
 
+    // ─── Verify payment with Cashfree API and credit driver wallet ──────────────
+
+    @Transactional
+    public PaymentStatusResponse verifyAndCreditPayment(String userId, String paymentId) {
+        userRepository.findById(userId)
+                .orElseThrow(() -> new ResourceNotFoundException("User not found"));
+
+        Payment payment = paymentRepository.findById(paymentId)
+                .orElseThrow(() -> new ResourceNotFoundException("Payment not found"));
+
+        if (!payment.getRider().getId().equals(userId)) {
+            throw new BadRequestException("Not authorized to verify this payment");
+        }
+
+        // Already credited — return immediately (idempotent)
+        if (payment.getStatus() == PaymentStatus.SUCCESS) {
+            return PaymentStatusResponse.builder()
+                    .paymentId(payment.getId()).rideId(payment.getRide().getId())
+                    .status("SUCCESS").amount(payment.getAmount()).build();
+        }
+
+        // Ask Cashfree for the real order status
+        Map<String, Object> cfOrder = callCashfreeGetOrder(payment.getCfOrderId());
+        String orderStatus = (String) cfOrder.get("order_status");
+        log.info("Cashfree verify: cfOrderId={}, order_status={}", payment.getCfOrderId(), orderStatus);
+
+        if ("PAID".equalsIgnoreCase(orderStatus)) {
+            payment.setStatus(PaymentStatus.SUCCESS);
+            paymentRepository.save(payment);
+
+            Wallet wallet = getOrCreateWallet(payment.getDriver());
+            wallet.setBalance(wallet.getBalance().add(payment.getAmount()));
+            walletRepository.save(wallet);
+
+            notificationService.send(
+                    payment.getRider().getId(), NotificationType.PAYMENT_SUCCESS,
+                    "Payment Successful",
+                    "₹" + payment.getAmount() + " paid for ride to " + payment.getRide().getDestination(),
+                    Map.of("rideId", payment.getRide().getId(), "paymentId", payment.getId()));
+            notificationService.send(
+                    payment.getDriver().getId(), NotificationType.PAYMENT_RECEIVED,
+                    "Payment Received",
+                    payment.getRider().getName() + " paid ₹" + payment.getAmount() + ". Your wallet has been credited.",
+                    Map.of("rideId", payment.getRide().getId(), "paymentId", payment.getId()));
+
+            log.info("Payment verified & wallet credited: paymentId={}, driver={}", payment.getId(), payment.getDriver().getEmail());
+
+            return PaymentStatusResponse.builder()
+                    .paymentId(payment.getId()).rideId(payment.getRide().getId())
+                    .status("SUCCESS").amount(payment.getAmount()).build();
+        }
+
+        // Not PAID (ACTIVE / EXPIRED / CANCELLED)
+        return PaymentStatusResponse.builder()
+                .paymentId(payment.getId()).rideId(payment.getRide().getId())
+                .status(payment.getStatus().name()).amount(payment.getAmount()).build();
+    }
+
     // ─── Checkout HTML page ─────────────────────────────────────────────────────
 
     public String buildCheckoutHtml(String paymentId) {
@@ -256,9 +314,6 @@ public class PaymentService {
         }
 
         String env = cashfree.getBaseUrl().contains("sandbox") ? "sandbox" : "production";
-        String sdkUrl = "sandbox".equals(env)
-                ? "https://sdk.cashfree.com/js/v3/cashfree.js"
-                : "https://sdk.cashfree.com/js/v3/cashfree.js";
 
         return "<!DOCTYPE html><html><head><meta charset='UTF-8'/>" +
                "<meta name='viewport' content='width=device-width,initial-scale=1'/>" +
@@ -267,42 +322,40 @@ public class PaymentService {
                "justify-content:center;min-height:100vh;margin:0;background:#f9fafb;}" +
                ".card{background:#fff;border-radius:16px;padding:32px;max-width:400px;width:90%;" +
                "box-shadow:0 4px 24px rgba(0,0,0,0.08);text-align:center;}" +
-               "h2{color:#111827;margin-bottom:8px;}p{color:#6b7280;margin-bottom:24px;}" +
+               "h2{color:#111827;margin-bottom:8px;}p{color:#6b7280;margin-bottom:16px;}" +
                ".amount{font-size:28px;font-weight:700;color:#16a34a;margin:16px 0;}" +
-               ".btn{background:#2563eb;color:#fff;border:none;border-radius:10px;padding:14px 32px;" +
-               "font-size:16px;font-weight:600;cursor:pointer;width:100%;}" +
-               ".btn:disabled{opacity:0.6;cursor:not-allowed;}" +
                ".spinner{border:3px solid #e5e7eb;border-top:3px solid #2563eb;border-radius:50%;" +
-               "width:24px;height:24px;animation:spin 0.8s linear infinite;margin:16px auto;display:none;}" +
+               "width:36px;height:36px;animation:spin 0.8s linear infinite;margin:24px auto;}" +
+               ".msg{font-size:13px;color:#6b7280;margin-top:8px;}" +
                "@keyframes spin{to{transform:rotate(360deg);}}</style>" +
-               "<script src='" + sdkUrl + "'></script></head><body>" +
+               "<script src='https://sdk.cashfree.com/js/v3/cashfree.js'></script></head><body>" +
                "<div class='card'>" +
                "<h2>Pay for Ride</h2>" +
                "<p>" + payment.getRide().getOrigin() + " → " + payment.getRide().getDestination() + "</p>" +
                "<div class='amount'>₹" + payment.getAmount() + "</div>" +
-               "<p style='font-size:13px;color:#9ca3af;'>Secure payment powered by Cashfree</p>" +
-               "<div class='spinner' id='spinner'></div>" +
-               "<button class='btn' id='payBtn' onclick='startPayment()'>Pay Now</button>" +
+               "<div class='spinner'></div>" +
+               "<p class='msg'>Opening secure payment...</p>" +
                "</div>" +
                "<script>" +
+               "const returnBase = window.location.origin + '/api/v1/payments/return?paymentId=" + paymentId + "';" +
                "const cashfree = Cashfree({ mode: '" + env + "' });" +
-               "async function startPayment() {" +
-               "  document.getElementById('payBtn').disabled = true;" +
-               "  document.getElementById('spinner').style.display = 'block';" +
+               "(async function() {" +
                "  try {" +
                "    const result = await cashfree.checkout({" +
                "      paymentSessionId: '" + payment.getPaymentSessionId() + "'," +
-               "      returnUrl: window.location.origin + '/api/v1/payments/return?paymentId=" + paymentId + "&status={order_status}'" +
+               "      returnUrl: returnBase + '&status={order_status}'" +
                "    });" +
+               // If we reach here, SDK processed inline (drop-in) — redirect to return for verification
                "    if (result && result.error) {" +
-               "      window.location.href = '/api/v1/payments/return?paymentId=" + paymentId + "&status=FAILED';" +
+               "      window.location.href = returnBase + '&status=FAILED';" +
                "    } else {" +
-               "      window.location.href = '/api/v1/payments/return?paymentId=" + paymentId + "&status=SUCCESS';" +
+               // Never assume SUCCESS — redirect to return URL; mobile will call /verify
+               "      window.location.href = returnBase + '&status=PENDING';" +
                "    }" +
                "  } catch(e) {" +
-               "    window.location.href = '/api/v1/payments/return?paymentId=" + paymentId + "&status=FAILED';" +
+               "    window.location.href = returnBase + '&status=FAILED';" +
                "  }" +
-               "}" +
+               "})();" +
                "</script></body></html>";
     }
 
@@ -338,6 +391,24 @@ public class PaymentService {
         return walletRepository.findByUserId(user.getId())
                 .orElseGet(() -> walletRepository.save(
                         Wallet.builder().user(user).balance(BigDecimal.ZERO).build()));
+    }
+
+    private Map<String, Object> callCashfreeGetOrder(String cfOrderId) {
+        HttpHeaders headers = new HttpHeaders();
+        headers.set("x-api-version", cashfree.getApiVersion());
+        headers.set("x-client-id", cashfree.getAppId());
+        headers.set("x-client-secret", cashfree.getSecretKey());
+
+        HttpEntity<Void> entity = new HttpEntity<>(headers);
+        try {
+            ResponseEntity<Map<String, Object>> response = restTemplate.exchange(
+                    cashfree.getBaseUrl() + "/orders/" + cfOrderId, HttpMethod.GET, entity,
+                    new org.springframework.core.ParameterizedTypeReference<>() {});
+            return response.getBody() != null ? response.getBody() : Map.of();
+        } catch (Exception e) {
+            log.error("Cashfree get order failed: {}", e.getMessage());
+            return Map.of();
+        }
     }
 
     private Map<String, Object> callCashfreeCreateOrder(Map<String, Object> payload) {
