@@ -3,7 +3,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage'
 import type { ApiError } from '../types'
 
 // iOS Simulator can use localhost; Android emulator use 10.0.2.2; physical device use your Mac's LAN IP
-export const API_BASE_URL = 'http://192.168.31.67:8080/api/v1'
+export const API_BASE_URL = 'http://192.168.31.214:8080/api/v1'
 
 export const apiClient = axios.create({
   baseURL: API_BASE_URL,

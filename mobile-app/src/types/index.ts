@@ -149,6 +149,8 @@ export type NotificationType =
   | 'RIDE_CANCELLED'
   | 'RIDE_STARTED'
   | 'CHAT_MESSAGE'
+  | 'PAYMENT_SUCCESS'
+  | 'PAYMENT_RECEIVED'
 
 export interface Notification {
   id: string
@@ -158,6 +160,40 @@ export interface Notification {
   read: boolean
   metadata?: Record<string, string>
   createdAt: string
+}
+
+export interface Payment {
+  paymentId?: string
+  rideId: string
+  status: 'PENDING' | 'SUCCESS' | 'FAILED' | 'NOT_PAID' | 'NOT_REQUIRED'
+  amount?: number
+  cfOrderId?: string
+  cfPaymentId?: string
+  createdAt?: string
+  updatedAt?: string
+}
+
+export interface PaymentOrder {
+  paymentId: string
+  cfOrderId: string
+  paymentSessionId: string
+  checkoutUrl: string
+  amount: number
+  status: string
+}
+
+export interface WalletTransaction {
+  paymentId: string
+  riderName: string
+  rideName: string
+  amount: number
+  createdAt: string
+}
+
+export interface Wallet {
+  walletId: string
+  balance: number
+  recentCredits: WalletTransaction[]
 }
 
 export interface ApiError {

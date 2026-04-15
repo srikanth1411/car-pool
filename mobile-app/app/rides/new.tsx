@@ -1,8 +1,9 @@
 import { useEffect, useState } from 'react'
 import {
-  View, Text, ScrollView, TouchableOpacity, StyleSheet,
+  View, Text, TouchableOpacity, StyleSheet,
   ActivityIndicator, TextInput, Alert, Switch, Modal,
 } from 'react-native'
+import { KeyboardAwareScrollView } from 'react-native-keyboard-aware-scroll-view'
 import DateTimePicker from '@react-native-community/datetimepicker'
 import { useRouter } from 'expo-router'
 import { ridesApi } from '../../src/api/rides'
@@ -168,7 +169,7 @@ export default function CreateRideScreen() {
   const selectedGroup = groups.find(g => g.id === selectedGroupId)
 
   return (
-    <ScrollView style={styles.container} contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
+    <KeyboardAwareScrollView style={styles.container} contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled" enableOnAndroid>
       {/* Group picker */}
       <View style={field.wrap}>
         <Text style={field.label}>Group</Text>
@@ -402,7 +403,7 @@ export default function CreateRideScreen() {
           {submitting ? <ActivityIndicator color="#fff" /> : <Text style={styles.submitBtnText}>Post Ride</Text>}
         </TouchableOpacity>
       </View>
-    </ScrollView>
+    </KeyboardAwareScrollView>
   )
 }
 

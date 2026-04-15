@@ -7,6 +7,7 @@ import { useFocusEffect } from 'expo-router'
 import AsyncStorage from '@react-native-async-storage/async-storage'
 import { groupsApi } from '../../src/api/groups'
 import { ridesApi } from '../../src/api/rides'
+import { paymentsApi } from '../../src/api/payments'
 import { useAuthStore } from '../../src/store/authStore'
 import type { Group, Ride, Membership } from '../../src/types'
 
@@ -46,6 +47,7 @@ export default function DashboardScreen() {
   const [adminPending, setAdminPending] = useState<Membership[]>([])
   const [newlyApproved, setNewlyApproved] = useState<{ groupId: string; groupName: string }[]>([])
   const [loading, setLoading] = useState(true)
+  const [currentRidePaymentStatus, setCurrentRidePaymentStatus] = useState<string | null>(null)
 
   const load = useCallback(async () => {
     try {
@@ -94,7 +96,19 @@ export default function DashboardScreen() {
       const allMyRides = [...booked, ...driving].filter(
         (r, i, arr) => arr.findIndex(x => x.id === r.id) === i
       )
-      setCurrentRide(allMyRides.find(r => r.status === 'DEPARTED') ?? null)
+      const departed = allMyRides.find(r => r.status === 'DEPARTED') ?? null
+      setCurrentRide(departed)
+
+      // Fetch payment status for booked riders on the current departed ride
+      if (departed && departed.driver.id !== user?.id && departed.price) {
+        try {
+          const ps = await paymentsApi.getPaymentStatus(departed.id)
+          setCurrentRidePaymentStatus(ps.status)
+        } catch { setCurrentRidePaymentStatus(null) }
+      } else {
+        setCurrentRidePaymentStatus(null)
+      }
+
       setUpcomingRides(
         allMyRides
           .filter(r => r.status === 'OPEN' || r.status === 'FULL')
@@ -105,7 +119,7 @@ export default function DashboardScreen() {
     }
   }, [user])
 
-  useFocusEffect(load)
+  useFocusEffect(useCallback(() => { load() }, [load]))
 
   const dismissApproved = async (groupId: string) => {
     const updated = newlyApproved.filter(n => n.groupId !== groupId)
@@ -129,6 +143,10 @@ export default function DashboardScreen() {
     } catch {
       Alert.alert('Error', 'Could not complete ride')
     }
+  }
+
+  const handlePayNow = (rideId: string) => {
+    router.push({ pathname: `/rides/${rideId}`, params: { pay: '1' } })
   }
 
   const subtitle = loading ? 'Loading…'
@@ -264,14 +282,25 @@ export default function DashboardScreen() {
                 <Text style={styles.cardTime}>{formatTime(currentRide.departureTime)}</Text>
                 <Text style={styles.cardGroup}>{currentRide.groupName}</Text>
                 <View style={styles.cardActions}>
-                  <TouchableOpacity style={styles.chatBtn} onPress={() => router.push(`/rides/${currentRide.id}`)}>
+                  <TouchableOpacity
+                    style={styles.chatBtn}
+                    onPress={() => router.push(`/rides/chat/${currentRide.id}`)}
+                  >
                     <Text style={styles.chatBtnText}>💬 Chat</Text>
                   </TouchableOpacity>
-                  {currentRide.driver.id === user?.id && (
+                  {currentRide.driver.id === user?.id ? (
                     <TouchableOpacity style={styles.completeBtn} onPress={() => handleComplete(currentRide.id)}>
                       <Text style={styles.completeBtnText}>✅ Complete</Text>
                     </TouchableOpacity>
-                  )}
+                  ) : currentRide.price != null && currentRidePaymentStatus !== 'SUCCESS' ? (
+                    <TouchableOpacity style={styles.payBtn} onPress={() => handlePayNow(currentRide.id)}>
+                      <Text style={styles.payBtnText}>💳 Pay ₹{currentRide.price.toFixed(2)}</Text>
+                    </TouchableOpacity>
+                  ) : currentRidePaymentStatus === 'SUCCESS' ? (
+                    <View style={styles.paidPill}>
+                      <Text style={styles.paidText}>✅ Paid</Text>
+                    </View>
+                  ) : null}
                 </View>
               </TouchableOpacity>
             </View>
@@ -424,6 +453,15 @@ const styles = StyleSheet.create({
     flex: 1, alignItems: 'center', paddingVertical: 8, borderRadius: 8, backgroundColor: '#16a34a',
   },
   completeBtnText: { color: '#fff', fontWeight: '600', fontSize: 13 },
+  payBtn: {
+    flex: 1, alignItems: 'center', paddingVertical: 8, borderRadius: 8, backgroundColor: '#7c3aed',
+  },
+  payBtnText: { color: '#fff', fontWeight: '600', fontSize: 13 },
+  paidPill: {
+    flex: 1, alignItems: 'center', paddingVertical: 8, borderRadius: 8,
+    backgroundColor: '#f0fdf4', borderWidth: 1, borderColor: '#86efac',
+  },
+  paidText: { color: '#16a34a', fontWeight: '600', fontSize: 13 },
   startBtn: {
     marginTop: 10, backgroundColor: '#2563eb', borderRadius: 8,
     paddingVertical: 8, alignItems: 'center',

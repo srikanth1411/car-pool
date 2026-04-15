@@ -60,6 +60,13 @@ export default function TabsLayout() {
           tabBarIcon: ({ color }) => <Icon label="🔔" />,
         }}
       />
+      <Tabs.Screen
+        name="wallet"
+        options={{
+          title: 'Wallet',
+          tabBarIcon: ({ color }) => <Icon label="💜" />,
+        }}
+      />
     </Tabs>
   )
 }

@@ -1,8 +1,9 @@
 import { useState } from 'react'
 import {
   View, Text, TextInput, TouchableOpacity, StyleSheet,
-  ScrollView, ActivityIndicator, Switch,
+  ActivityIndicator, Switch,
 } from 'react-native'
+import { KeyboardAwareScrollView } from 'react-native-keyboard-aware-scroll-view'
 import { Link, useRouter } from 'expo-router'
 import { useAuthStore } from '../../src/store/authStore'
 import { extractError } from '../../src/api/client'
@@ -40,7 +41,7 @@ export default function RegisterScreen() {
 
   return (
     <View style={styles.container}>
-      <ScrollView contentContainerStyle={styles.scroll} keyboardShouldPersistTaps="handled">
+      <KeyboardAwareScrollView contentContainerStyle={styles.scroll} keyboardShouldPersistTaps="handled" enableOnAndroid>
         <View style={styles.card}>
           <View style={styles.iconWrap}>
             <Text style={styles.iconText}>🚗</Text>
@@ -117,7 +118,7 @@ export default function RegisterScreen() {
             <Link href="/(auth)/login" style={styles.link}>Sign in</Link>
           </Text>
         </View>
-      </ScrollView>
+      </KeyboardAwareScrollView>
     </View>
   )
 }

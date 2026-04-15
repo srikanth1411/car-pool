@@ -30,7 +30,13 @@ server:
 
 upload:
   dir: uploads
-  base-url: http://localhost:8080
+  base-url: http://192.168.31.214:8080
+
+cashfree:
+  app-id: ${CASHFREE_APP_ID}
+  secret-key: ${CASHFREE_SECRET_KEY}
+  base-url: ${CASHFREE_BASE_URL:https://sandbox.cashfree.com/pg}
+  api-version: "2023-08-01"
 
 jwt:
   secret: ${JWT_SECRET:dev-secret-key-at-least-256-bits-long-change-in-production-now}

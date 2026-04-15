@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState } from 'react'
 import {
-  View, Text, ScrollView, TouchableOpacity, StyleSheet,
+  View, Text, TouchableOpacity, StyleSheet,
   ActivityIndicator, TextInput, Alert, Image, Modal, SafeAreaView,
 } from 'react-native'
+import { KeyboardAwareScrollView } from 'react-native-keyboard-aware-scroll-view'
 import { useLocalSearchParams, useRouter } from 'expo-router'
 import { groupsApi } from '../../../src/api/groups'
 import { useAuthStore } from '../../../src/store/authStore'
@@ -240,7 +241,7 @@ export default function ApplicationScreen() {
 
   return (
     <View style={{ flex: 1 }}>
-      <ScrollView style={s.container} contentContainerStyle={s.content} keyboardShouldPersistTaps="handled">
+      <KeyboardAwareScrollView style={s.container} contentContainerStyle={s.content} keyboardShouldPersistTaps="handled" enableOnAndroid>
         {/* User info */}
         <View style={s.userCard}>
           <Text style={s.userName}>{application?.user.name}</Text>
@@ -301,7 +302,7 @@ export default function ApplicationScreen() {
             </TouchableOpacity>
           </View>
         </View>
-      </ScrollView>
+      </KeyboardAwareScrollView>
     </View>
   )
 }

@@ -1,14 +1,17 @@
 import { useEffect, useState } from 'react'
 import {
   View, Text, ScrollView, TouchableOpacity, StyleSheet,
-  ActivityIndicator, Alert, TextInput, Modal,
+  ActivityIndicator, Alert, TextInput, Modal, SafeAreaView,
 } from 'react-native'
+import { KeyboardAwareScrollView } from 'react-native-keyboard-aware-scroll-view'
+import { WebView } from 'react-native-webview'
 import { useLocalSearchParams, useRouter } from 'expo-router'
 import { ridesApi } from '../../src/api/rides'
 import { groupsApi } from '../../src/api/groups'
+import { paymentsApi } from '../../src/api/payments'
 import { useAuthStore } from '../../src/store/authStore'
 import { extractError } from '../../src/api/client'
-import type { Ride, RideRequest, GroupLocation } from '../../src/types'
+import type { Ride, RideRequest, GroupLocation, Payment } from '../../src/types'
 
 function formatTime(dt: string) {
   return new Date(dt).toLocaleString(undefined, {
@@ -49,7 +52,7 @@ function RequestStatusBadge({ status }: { status: RideRequest['status'] }) {
 }
 
 export default function RideDetailScreen() {
-  const { rideId } = useLocalSearchParams<{ rideId: string }>()
+  const { rideId, pay } = useLocalSearchParams<{ rideId: string; pay?: string }>()
   const { user } = useAuthStore()
   const router = useRouter()
   const [ride, setRide] = useState<Ride | null>(null)
@@ -64,6 +67,10 @@ export default function RideDetailScreen() {
   const [dropoffLocationId, setDropoffLocationId] = useState('')
   const [message, setMessage] = useState('')
   const [error, setError] = useState('')
+  const [paymentStatus, setPaymentStatus] = useState<Payment | null>(null)
+  const [showPayWebView, setShowPayWebView] = useState(false)
+  const [checkoutUrl, setCheckoutUrl] = useState('')
+  const [payLoading, setPayLoading] = useState(false)
 
   const isDriver = ride?.driver.id === user?.id
 
@@ -81,7 +88,15 @@ export default function RideDetailScreen() {
         setRequests(reqs)
       } else {
         const booked = await ridesApi.getBookedRides()
-        setIsBooked(booked.some(b => b.id === rideId))
+        const isOnRide = booked.some(b => b.id === rideId)
+        setIsBooked(isOnRide)
+        // Fetch payment status for booked riders on departed/completed rides
+        if (isOnRide && (r.status === 'DEPARTED' || r.status === 'COMPLETED') && r.price) {
+          try {
+            const ps = await paymentsApi.getPaymentStatus(rideId)
+            setPaymentStatus(ps)
+          } catch { /* ignore */ }
+        }
       }
     } finally {
       setLoading(false)
@@ -89,6 +104,14 @@ export default function RideDetailScreen() {
   }
 
   useEffect(() => { load() }, [rideId])
+
+  // Auto-open payment WebView when navigated here with ?pay=1
+  useEffect(() => {
+    if (pay !== '1' || loading || !ride || !isBooked) return
+    if (paymentStatus?.status === 'SUCCESS') return
+    if (ride.price == null || (ride.status !== 'DEPARTED' && ride.status !== 'COMPLETED')) return
+    handlePayNow()
+  }, [pay, loading, ride, isBooked, paymentStatus])
 
   const handleRequestSeat = async () => {
     if (!rideId) return
@@ -152,6 +175,34 @@ export default function RideDetailScreen() {
     ])
   }
 
+  const handlePayNow = async () => {
+    if (!rideId) return
+    setPayLoading(true)
+    try {
+      const order = await paymentsApi.createOrder(rideId)
+      setCheckoutUrl(order.checkoutUrl)
+      setShowPayWebView(true)
+    } catch (e) {
+      Alert.alert('Payment Error', extractError(e))
+    } finally {
+      setPayLoading(false)
+    }
+  }
+
+  const handleWebViewNav = (navState: { url: string }) => {
+    // Detect when Cashfree redirects back to our /return page
+    if (navState.url.includes('/payments/return')) {
+      setShowPayWebView(false)
+      const success = navState.url.includes('status=PAID') || navState.url.includes('status=SUCCESS')
+      if (success) {
+        Alert.alert('Payment Successful', 'Your payment was received. The driver\'s wallet has been credited.')
+      } else {
+        Alert.alert('Payment Failed', 'Your payment could not be processed. Please try again.')
+      }
+      load()
+    }
+  }
+
   const handleConfirmRequest = async (requestId: string) => {
     try { await ridesApi.confirmRequest(requestId); load() }
     catch (e) { Alert.alert('Error', extractError(e)) }
@@ -169,7 +220,7 @@ export default function RideDetailScreen() {
   const allStops = ride.allStops ?? []
 
   return (
-    <ScrollView style={s.container} contentContainerStyle={s.content}>
+    <KeyboardAwareScrollView style={s.container} contentContainerStyle={s.content} keyboardShouldPersistTaps="handled" enableOnAndroid>
       {/* Header card */}
       <View style={s.card}>
         <View style={s.headerRow}>
@@ -225,6 +276,14 @@ export default function RideDetailScreen() {
             <Text style={s.primaryBtnText}>✅ Complete Ride</Text>
           </TouchableOpacity>
         )}
+        {ride.status === 'DEPARTED' && (
+          <TouchableOpacity
+            style={[s.primaryBtn, { backgroundColor: '#0f172a' }]}
+            onPress={() => router.push(`/rides/chat/${rideId}`)}
+          >
+            <Text style={s.primaryBtnText}>💬 Ride Chat</Text>
+          </TouchableOpacity>
+        )}
         {isDriver && (ride.status === 'OPEN' || ride.status === 'FULL') && (
           <TouchableOpacity style={s.dangerBtn} onPress={handleCancelRide}>
             <Text style={s.dangerBtnText}>🚫 Cancel Ride</Text>
@@ -241,6 +300,26 @@ export default function RideDetailScreen() {
           </TouchableOpacity>
         )}
         {isBooked && <View style={s.bookedPill}><Text style={s.bookedText}>✓ You're booked on this ride</Text></View>}
+
+        {/* Pay Now — shown for booked riders once ride is DEPARTED and price is set */}
+        {isBooked && ride.price != null && (ride.status === 'DEPARTED' || ride.status === 'COMPLETED') && (
+          paymentStatus?.status === 'SUCCESS' ? (
+            <View style={s.paidPill}>
+              <Text style={s.paidText}>✅ Payment Complete — ₹{ride.price.toFixed(2)}</Text>
+            </View>
+          ) : (
+            <TouchableOpacity
+              style={[s.payBtn, payLoading && { opacity: 0.6 }]}
+              onPress={handlePayNow}
+              disabled={payLoading}
+            >
+              {payLoading
+                ? <ActivityIndicator color="#fff" />
+                : <Text style={s.payBtnText}>💳 Pay ₹{ride.price.toFixed(2)}</Text>
+              }
+            </TouchableOpacity>
+          )
+        )}
       </View>
 
       {/* Ride requests (driver view) */}
@@ -270,11 +349,33 @@ export default function RideDetailScreen() {
         </View>
       )}
 
+      {/* Cashfree payment WebView modal */}
+      <Modal visible={showPayWebView} animationType="slide" onRequestClose={() => setShowPayWebView(false)}>
+        <SafeAreaView style={{ flex: 1, backgroundColor: '#fff' }}>
+          <View style={s.webViewHeader}>
+            <TouchableOpacity onPress={() => setShowPayWebView(false)}>
+              <Text style={s.webViewClose}>✕ Close</Text>
+            </TouchableOpacity>
+            <Text style={s.webViewTitle}>Secure Payment</Text>
+            <View style={{ width: 60 }} />
+          </View>
+          <WebView
+            source={{ uri: checkoutUrl }}
+            style={{ flex: 1 }}
+            onNavigationStateChange={handleWebViewNav}
+            javaScriptEnabled
+            domStorageEnabled
+            startInLoadingState
+            renderLoading={() => <ActivityIndicator style={{ flex: 1 }} color="#2563eb" />}
+          />
+        </SafeAreaView>
+      </Modal>
+
       {/* Book seat modal */}
       <Modal visible={showBookModal} animationType="slide" transparent onRequestClose={() => setShowBookModal(false)}>
         <View style={{ flex: 1 }}>
         <View style={modal.overlay}>
-          <ScrollView style={modal.sheet} contentContainerStyle={{ paddingBottom: 40 }} keyboardShouldPersistTaps="handled">
+          <KeyboardAwareScrollView style={modal.sheet} contentContainerStyle={{ paddingBottom: 40 }} keyboardShouldPersistTaps="handled" enableOnAndroid>
             <Text style={modal.title}>Request a Seat</Text>
 
             <Text style={modal.label}>Seats needed</Text>
@@ -350,11 +451,11 @@ export default function RideDetailScreen() {
                 {requestLoading ? <ActivityIndicator color="#fff" /> : <Text style={modal.submitText}>Send Request</Text>}
               </TouchableOpacity>
             </View>
-          </ScrollView>
+          </KeyboardAwareScrollView>
         </View>
         </View>
       </Modal>
-    </ScrollView>
+    </KeyboardAwareScrollView>
   )
 }
 
@@ -390,6 +491,13 @@ const s = StyleSheet.create({
   dangerBtnText: { color: '#dc2626', fontWeight: '600', fontSize: 15 },
   bookedPill: { backgroundColor: '#dcfce7', borderRadius: 10, paddingVertical: 10, alignItems: 'center' },
   bookedText: { color: '#16a34a', fontWeight: '600', fontSize: 14 },
+  payBtn: { backgroundColor: '#7c3aed', borderRadius: 12, paddingVertical: 14, alignItems: 'center' },
+  payBtnText: { color: '#fff', fontWeight: '700', fontSize: 15 },
+  paidPill: { backgroundColor: '#f0fdf4', borderWidth: 1, borderColor: '#86efac', borderRadius: 10, paddingVertical: 10, alignItems: 'center' },
+  paidText: { color: '#16a34a', fontWeight: '600', fontSize: 14 },
+  webViewHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 16, paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: '#e5e7eb' },
+  webViewClose: { color: '#2563eb', fontSize: 15, fontWeight: '500', width: 60 },
+  webViewTitle: { fontSize: 16, fontWeight: '700', color: '#111827' },
   section: { marginBottom: 20 },
   sectionTitle: { fontSize: 15, fontWeight: '700', color: '#111827', marginBottom: 10 },
   reqCard: { backgroundColor: '#fff', borderRadius: 12, padding: 14, marginBottom: 10 },

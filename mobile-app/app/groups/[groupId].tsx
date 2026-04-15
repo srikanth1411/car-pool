@@ -1,8 +1,9 @@
 import { useEffect, useState } from 'react'
 import {
-  View, Text, ScrollView, TouchableOpacity, StyleSheet,
+  View, Text, TouchableOpacity, StyleSheet,
   ActivityIndicator, Alert, TextInput, Clipboard,
 } from 'react-native'
+import { KeyboardAwareScrollView } from 'react-native-keyboard-aware-scroll-view'
 import { useLocalSearchParams, useRouter } from 'expo-router'
 import { groupsApi } from '../../src/api/groups'
 import { ridesApi } from '../../src/api/rides'
@@ -130,7 +131,7 @@ export default function GroupDetailScreen() {
   ]
 
   return (
-    <ScrollView style={styles.container} contentContainerStyle={styles.content}>
+    <KeyboardAwareScrollView style={styles.container} contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled" enableOnAndroid>
       {/* Header */}
       <View style={styles.header}>
         <View style={styles.headerRow}>
@@ -262,7 +263,7 @@ export default function GroupDetailScreen() {
           <Text style={styles.deleteBtnText}>🗑  Delete Group</Text>
         </TouchableOpacity>
       )}
-    </ScrollView>
+    </KeyboardAwareScrollView>
   )
 }
 
