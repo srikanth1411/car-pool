@@ -4,7 +4,7 @@ import {
   StyleSheet, ActivityIndicator, Keyboard, Platform,
 } from 'react-native'
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context'
-import { useLocalSearchParams, useNavigation } from 'expo-router'
+import { useLocalSearchParams, useRouter } from 'expo-router'
 import { chatApi } from '../../../src/api/chat'
 import { useAuthStore } from '../../../src/store/authStore'
 import type { RideMessage, User } from '../../../src/types'
@@ -30,7 +30,7 @@ function Avatar({ name }: { name: string }) {
 export default function RideChatScreen() {
   const { rideId } = useLocalSearchParams<{ rideId: string }>()
   const { user } = useAuthStore()
-  const navigation = useNavigation()
+  const router = useRouter()
   const insets = useSafeAreaInsets()
 
   const [messages, setMessages] = useState<RideMessage[]>([])
@@ -42,18 +42,16 @@ export default function RideChatScreen() {
   const [showMentions, setShowMentions] = useState(false)
   const [mentionStart, setMentionStart] = useState(-1)
   const [pendingMentions, setPendingMentions] = useState<User[]>([])
-  // Keyboard height above the safe-area bottom — push content up by this amount
+  // Extra bottom padding to push content above the keyboard
   const [keyboardPad, setKeyboardPad] = useState(0)
 
   const flatListRef = useRef<FlatList>(null)
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
-  useEffect(() => {
-    navigation.setOptions({ title: 'Ride Chat' })
-  }, [navigation])
-
-  // Listen to keyboard events and compute how much to push the layout up.
-  // endCoordinates.height includes the safe-area bottom inset on iOS, so subtract it.
+  // SafeAreaView handles the home-indicator inset (insets.bottom ≈ 34px).
+  // endCoordinates.height = full keyboard height measured from the screen bottom,
+  // which includes the home-indicator area. Subtract insets.bottom to get the
+  // extra space we need to add on top of what SafeAreaView already reserves.
   useEffect(() => {
     const showEvent = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow'
     const hideEvent = Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide'
@@ -150,11 +148,23 @@ export default function RideChatScreen() {
   }
 
   return (
-    // edges prop excludes bottom so SafeAreaView doesn't add home-indicator padding —
-    // we manage the bottom space ourselves via keyboardPad
-    <SafeAreaView edges={['top', 'left', 'right']} style={{ flex: 1, backgroundColor: '#f9fafb' }}>
-      <View style={[s.inner, { paddingBottom: keyboardPad }]}>
-        {/* Messages list */}
+    // SafeAreaView with all edges — it adds bottom padding for the home indicator.
+    // We add keyboardPad on top of that to clear the keyboard keys.
+    <SafeAreaView style={s.safe}>
+      {/* ── Header ── */}
+      <View style={s.header}>
+        <TouchableOpacity style={s.backBtn} onPress={() => router.back()} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
+          <Text style={s.backIcon}>‹</Text>
+        </TouchableOpacity>
+        <View style={s.headerCenter}>
+          <Text style={s.headerTitle}>Ride Chat</Text>
+          <Text style={s.headerSub}>{participants.length > 0 ? `${participants.length} participant${participants.length !== 1 ? 's' : ''}` : ''}</Text>
+        </View>
+        <View style={{ width: 44 }} />
+      </View>
+
+      {/* ── Content pushes up by keyboardPad when keyboard is open ── */}
+      <View style={[s.body, { paddingBottom: keyboardPad }]}>
         {loading ? (
           <ActivityIndicator style={{ flex: 1 }} color="#2563eb" />
         ) : (
@@ -170,7 +180,7 @@ export default function RideChatScreen() {
               <View style={s.empty}>
                 <Text style={s.emptyIcon}>💬</Text>
                 <Text style={s.emptyText}>No messages yet</Text>
-                <Text style={s.emptySub}>Start the conversation!</Text>
+                <Text style={s.emptySub}>Be the first — say hi!</Text>
               </View>
             }
           />
@@ -194,7 +204,7 @@ export default function RideChatScreen() {
             style={s.input}
             value={input}
             onChangeText={handleInput}
-            placeholder="Type a message… use @ to mention"
+            placeholder="Message… use @ to mention"
             placeholderTextColor="#9ca3af"
             multiline
             maxLength={500}
@@ -230,13 +240,32 @@ function renderMentions(content: string, mentions: User[], isMe: boolean): React
 }
 
 const s = StyleSheet.create({
-  inner: { flex: 1 },
+  safe: { flex: 1, backgroundColor: '#f9fafb' },
+
+  // ── Header ──────────────────────────────────────────────────────────────
+  header: {
+    flexDirection: 'row', alignItems: 'center',
+    paddingHorizontal: 8, paddingVertical: 10,
+    backgroundColor: '#fff',
+    borderBottomWidth: 1, borderBottomColor: '#e5e7eb',
+  },
+  backBtn: {
+    width: 44, height: 44, alignItems: 'center', justifyContent: 'center',
+  },
+  backIcon: { fontSize: 32, color: '#2563eb', lineHeight: 36 },
+  headerCenter: { flex: 1, alignItems: 'center' },
+  headerTitle: { fontSize: 16, fontWeight: '700', color: '#111827' },
+  headerSub: { fontSize: 12, color: '#6b7280', marginTop: 1 },
+
+  // ── Body ────────────────────────────────────────────────────────────────
+  body: { flex: 1 },
   list: { padding: 12, paddingBottom: 8, flexGrow: 1 },
   empty: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingTop: 80 },
   emptyIcon: { fontSize: 48, marginBottom: 10 },
   emptyText: { fontSize: 16, fontWeight: '600', color: '#374151' },
   emptySub: { fontSize: 13, color: '#9ca3af', marginTop: 4 },
 
+  // ── Messages ─────────────────────────────────────────────────────────────
   msgRow: { flexDirection: 'row', alignItems: 'flex-end', marginBottom: 10, gap: 6 },
   msgRowMe: { justifyContent: 'flex-end' },
   avatar: {
@@ -244,7 +273,6 @@ const s = StyleSheet.create({
     alignItems: 'center', justifyContent: 'center',
   },
   avatarText: { fontSize: 12, fontWeight: '700', color: '#2563eb' },
-
   bubble: { maxWidth: '75%', borderRadius: 16, padding: 10 },
   bubbleThem: {
     backgroundColor: '#fff', borderTopLeftRadius: 4,
@@ -252,7 +280,6 @@ const s = StyleSheet.create({
     shadowOffset: { width: 0, height: 1 }, elevation: 1,
   },
   bubbleMe: { backgroundColor: '#2563eb', borderTopRightRadius: 4 },
-
   senderName: { fontSize: 11, fontWeight: '600', color: '#6b7280', marginBottom: 3 },
   msgText: { fontSize: 14, color: '#111827', lineHeight: 20 },
   msgTextMe: { color: '#fff' },
@@ -261,6 +288,7 @@ const s = StyleSheet.create({
   mention: { backgroundColor: '#dbeafe', color: '#1d4ed8', fontWeight: '600', borderRadius: 4, overflow: 'hidden' },
   mentionMe: { backgroundColor: '#1d4ed8', color: '#bfdbfe' },
 
+  // ── Mentions dropdown ────────────────────────────────────────────────────
   mentionBox: {
     backgroundColor: '#fff', borderTopWidth: 1, borderTopColor: '#e5e7eb', maxHeight: 160,
   },
@@ -271,6 +299,7 @@ const s = StyleSheet.create({
   },
   mentionName: { fontSize: 14, color: '#111827', fontWeight: '500' },
 
+  // ── Input bar ────────────────────────────────────────────────────────────
   inputBar: {
     flexDirection: 'row', alignItems: 'flex-end', gap: 8,
     paddingHorizontal: 12, paddingVertical: 10,
