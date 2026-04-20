@@ -77,20 +77,26 @@ public class PaymentService {
             throw new BadRequestException("You have already paid for this ride");
         }
 
-        // Reuse existing PENDING payment or create new one
+        BigDecimal amount = ride.getPrice().multiply(BigDecimal.valueOf(rideRequest.getSeatsRequested()));
+
+        // Save payment record FIRST so we have its ID for the Cashfree return_url
         Payment payment = paymentRepository
                 .findByRideIdAndRiderId(ride.getId(), rider.getId())
                 .filter(p -> p.getStatus() == PaymentStatus.PENDING)
-                .orElse(null);
+                .orElseGet(() -> paymentRepository.save(Payment.builder()
+                        .ride(ride).rider(rider).driver(ride.getDriver())
+                        .amount(amount).seatsPaid(rideRequest.getSeatsRequested())
+                        .status(PaymentStatus.PENDING).build()));
 
-        BigDecimal amount = ride.getPrice().multiply(BigDecimal.valueOf(rideRequest.getSeatsRequested()));
-
-        // Create Cashfree order
+        // Always create a fresh Cashfree order (payment sessions expire)
         String cfOrderId = "ride_" + ride.getId().replace("-", "").substring(0, 10)
                 + "_" + rider.getId().replace("-", "").substring(0, 6)
                 + "_" + System.currentTimeMillis();
 
-        Map<String, Object> orderPayload = buildCashfreeOrderPayload(cfOrderId, amount, rider);
+        // Include return_url in the order so Cashfree redirects correctly after payment
+        String returnUrl = backendBaseUrl + "/api/v1/payments/return?paymentId=" + payment.getId() + "&status={order_status}";
+
+        Map<String, Object> orderPayload = buildCashfreeOrderPayload(cfOrderId, amount, rider, returnUrl);
         Map<String, Object> cfResponse = callCashfreeCreateOrder(orderPayload);
 
         String paymentSessionId = (String) cfResponse.get("payment_session_id");
@@ -99,19 +105,9 @@ public class PaymentService {
             throw new BadRequestException("Payment gateway error. Please try again.");
         }
 
-        if (payment == null) {
-            payment = Payment.builder()
-                    .ride(ride)
-                    .rider(rider)
-                    .driver(ride.getDriver())
-                    .amount(amount)
-                    .seatsPaid(rideRequest.getSeatsRequested())
-                    .status(PaymentStatus.PENDING)
-                    .build();
-        }
         payment.setCfOrderId(cfOrderId);
         payment.setPaymentSessionId(paymentSessionId);
-        payment = paymentRepository.save(payment);
+        paymentRepository.save(payment);
 
         String ourCheckoutUrl = backendBaseUrl + "/api/v1/payments/checkout/" + payment.getId();
 
@@ -337,23 +333,20 @@ public class PaymentService {
                "<p class='msg'>Opening secure payment...</p>" +
                "</div>" +
                "<script>" +
-               "const returnBase = window.location.origin + '/api/v1/payments/return?paymentId=" + paymentId + "';" +
+               "const failUrl = window.location.origin + '/api/v1/payments/return?paymentId=" + paymentId + "&status=FAILED';" +
                "const cashfree = Cashfree({ mode: '" + env + "' });" +
+               // redirectTarget '_self' forces the SDK to redirect this page (WebView) instead of opening a popup
+               // The return_url is already set in order_meta on the backend — Cashfree will redirect there with {order_status} replaced
                "(async function() {" +
                "  try {" +
-               "    const result = await cashfree.checkout({" +
+               "    await cashfree.checkout({" +
                "      paymentSessionId: '" + payment.getPaymentSessionId() + "'," +
-               "      returnUrl: returnBase + '&status={order_status}'" +
+               "      redirectTarget: '_self'" +
                "    });" +
-               // If we reach here, SDK processed inline (drop-in) — redirect to return for verification
-               "    if (result && result.error) {" +
-               "      window.location.href = returnBase + '&status=FAILED';" +
-               "    } else {" +
-               // Never assume SUCCESS — redirect to return URL; mobile will call /verify
-               "      window.location.href = returnBase + '&status=PENDING';" +
-               "    }" +
+               // Only reached if SDK resolves without redirecting (rare drop-in case)
+               "    window.location.href = failUrl;" +
                "  } catch(e) {" +
-               "    window.location.href = returnBase + '&status=FAILED';" +
+               "    window.location.href = failUrl;" +
                "  }" +
                "})();" +
                "</script></body></html>";
@@ -430,18 +423,22 @@ public class PaymentService {
         }
     }
 
-    private Map<String, Object> buildCashfreeOrderPayload(String cfOrderId, BigDecimal amount, User rider) {
+    private Map<String, Object> buildCashfreeOrderPayload(String cfOrderId, BigDecimal amount, User rider, String returnUrl) {
         Map<String, Object> customer = new LinkedHashMap<>();
         customer.put("customer_id", rider.getId());
         customer.put("customer_name", rider.getName());
         customer.put("customer_email", rider.getEmail());
         customer.put("customer_phone", rider.getPhone() != null ? rider.getPhone() : "9999999999");
 
+        Map<String, Object> orderMeta = new LinkedHashMap<>();
+        orderMeta.put("return_url", returnUrl);
+
         Map<String, Object> payload = new LinkedHashMap<>();
         payload.put("order_id", cfOrderId);
         payload.put("order_amount", amount);
         payload.put("order_currency", "INR");
         payload.put("customer_details", customer);
+        payload.put("order_meta", orderMeta);
 
         return payload;
     }
