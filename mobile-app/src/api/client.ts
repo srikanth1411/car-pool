@@ -21,6 +21,11 @@ apiClient.interceptors.response.use(
   async (error) => {
     if (error.response?.status === 401) {
       await AsyncStorage.multiRemove(['accessToken', 'refreshToken', 'user'])
+      // Lazy require avoids circular dep (authStore → auth → client)
+      // Setting isAuthenticated:false causes _layout.tsx to redirect to login automatically
+      // eslint-disable-next-line @typescript-eslint/no-var-requires
+      const { useAuthStore } = require('../store/authStore')
+      useAuthStore.setState({ user: null, isAuthenticated: false })
     }
     return Promise.reject(error)
   }
