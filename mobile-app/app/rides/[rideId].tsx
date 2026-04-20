@@ -10,7 +10,7 @@ import { ridesApi } from '../../src/api/rides'
 import { groupsApi } from '../../src/api/groups'
 import { paymentsApi } from '../../src/api/payments'
 import { useAuthStore } from '../../src/store/authStore'
-import { extractError } from '../../src/api/client'
+import { extractError, API_BASE_URL } from '../../src/api/client'
 import type { Ride, RideRequest, GroupLocation, Payment } from '../../src/types'
 
 function formatTime(dt: string) {
@@ -69,7 +69,7 @@ export default function RideDetailScreen() {
   const [error, setError] = useState('')
   const [paymentStatus, setPaymentStatus] = useState<Payment | null>(null)
   const [showPayWebView, setShowPayWebView] = useState(false)
-  const [checkoutUrl, setCheckoutUrl] = useState('')
+  const [checkoutHtml, setCheckoutHtml] = useState('')
   const [payLoading, setPayLoading] = useState(false)
 
   const isDriver = ride?.driver.id === user?.id
@@ -180,7 +180,43 @@ export default function RideDetailScreen() {
     setPayLoading(true)
     try {
       const order = await paymentsApi.createOrder(rideId)
-      setCheckoutUrl(order.checkoutUrl)
+      // Build the return URL using our backend base — same URL the backend set in order_meta
+      const backendBase = API_BASE_URL.replace('/api/v1', '')
+      const failUrl = `${backendBase}/api/v1/payments/return?paymentId=${order.paymentId}&status=FAILED`
+      // Generate HTML inline so there's no IP-based Origin header that Cashfree might block.
+      // baseUrl in the WebView is set to Cashfree's domain so SDK cross-origin checks pass.
+      const env = 'sandbox'
+      setCheckoutHtml(`<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<style>
+body{margin:0;display:flex;flex-direction:column;align-items:center;justify-content:center;
+min-height:100vh;background:#f9fafb;font-family:sans-serif;}
+.sp{width:40px;height:40px;border:3px solid #e5e7eb;border-top-color:#2563eb;
+border-radius:50%;animation:spin .8s linear infinite;}
+@keyframes spin{to{transform:rotate(360deg);}}
+p{color:#6b7280;margin-top:16px;font-size:14px;}
+</style>
+<script src="https://sdk.cashfree.com/js/v3/cashfree.js"></script>
+</head>
+<body>
+<div class="sp"></div><p>Opening secure payment…</p>
+<script>
+(async()=>{
+  try{
+    const cf=Cashfree({mode:'${env}'});
+    await cf.checkout({paymentSessionId:'${order.paymentSessionId}',redirectTarget:'_self'});
+    // Reached only if SDK resolves without redirecting — treat as incomplete
+    window.location.href='${failUrl}';
+  }catch(e){
+    window.location.href='${failUrl}';
+  }
+})();
+</script>
+</body>
+</html>`)
       setShowPayWebView(true)
     } catch (e) {
       Alert.alert('Payment Error', extractError(e))
@@ -377,11 +413,12 @@ export default function RideDetailScreen() {
             <View style={{ width: 60 }} />
           </View>
           <WebView
-            source={{ uri: checkoutUrl }}
+            source={{ html: checkoutHtml, baseUrl: 'https://payments-test.cashfree.com' }}
             style={{ flex: 1 }}
             onNavigationStateChange={handleWebViewNav}
             javaScriptEnabled
             domStorageEnabled
+            originWhitelist={['*']}
             startInLoadingState
             renderLoading={() => <ActivityIndicator style={{ flex: 1 }} color="#2563eb" />}
           />
