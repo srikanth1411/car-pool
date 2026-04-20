@@ -1,12 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import {
   View, Text, TextInput, TouchableOpacity, FlatList,
-  StyleSheet, ActivityIndicator, SafeAreaView,
+  StyleSheet, ActivityIndicator, Keyboard, Platform,
 } from 'react-native'
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context'
 import { useLocalSearchParams, useNavigation } from 'expo-router'
 import { chatApi } from '../../../src/api/chat'
 import { useAuthStore } from '../../../src/store/authStore'
-import { extractError } from '../../../src/api/client'
 import type { RideMessage, User } from '../../../src/types'
 
 function timeAgo(dt: string) {
@@ -31,6 +31,7 @@ export default function RideChatScreen() {
   const { rideId } = useLocalSearchParams<{ rideId: string }>()
   const { user } = useAuthStore()
   const navigation = useNavigation()
+  const insets = useSafeAreaInsets()
 
   const [messages, setMessages] = useState<RideMessage[]>([])
   const [participants, setParticipants] = useState<User[]>([])
@@ -41,6 +42,8 @@ export default function RideChatScreen() {
   const [showMentions, setShowMentions] = useState(false)
   const [mentionStart, setMentionStart] = useState(-1)
   const [pendingMentions, setPendingMentions] = useState<User[]>([])
+  // Keyboard height above the safe-area bottom — push content up by this amount
+  const [keyboardPad, setKeyboardPad] = useState(0)
 
   const flatListRef = useRef<FlatList>(null)
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
@@ -48,6 +51,21 @@ export default function RideChatScreen() {
   useEffect(() => {
     navigation.setOptions({ title: 'Ride Chat' })
   }, [navigation])
+
+  // Listen to keyboard events and compute how much to push the layout up.
+  // endCoordinates.height includes the safe-area bottom inset on iOS, so subtract it.
+  useEffect(() => {
+    const showEvent = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow'
+    const hideEvent = Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide'
+
+    const show = Keyboard.addListener(showEvent, (e) => {
+      const pad = e.endCoordinates.height - insets.bottom
+      setKeyboardPad(pad > 0 ? pad : 0)
+    })
+    const hide = Keyboard.addListener(hideEvent, () => setKeyboardPad(0))
+
+    return () => { show.remove(); hide.remove() }
+  }, [insets.bottom])
 
   const fetchMessages = useCallback(async () => {
     try {
@@ -64,7 +82,6 @@ export default function RideChatScreen() {
     return () => { if (pollRef.current) clearInterval(pollRef.current) }
   }, [rideId, fetchMessages])
 
-  // Scroll to bottom when new messages arrive
   useEffect(() => {
     if (messages.length > 0) {
       setTimeout(() => flatListRef.current?.scrollToEnd({ animated: true }), 100)
@@ -104,7 +121,7 @@ export default function RideChatScreen() {
       setMessages(prev => [...prev, msg])
       setInput('')
       setPendingMentions([])
-    } catch (e) {
+    } catch {
       // silently fail — message stays in input
     } finally {
       setSending(false)
@@ -133,8 +150,10 @@ export default function RideChatScreen() {
   }
 
   return (
-    <SafeAreaView style={{ flex: 1, backgroundColor: '#f9fafb' }}>
-      <View style={{ flex: 1 }}>
+    // edges prop excludes bottom so SafeAreaView doesn't add home-indicator padding —
+    // we manage the bottom space ourselves via keyboardPad
+    <SafeAreaView edges={['top', 'left', 'right']} style={{ flex: 1, backgroundColor: '#f9fafb' }}>
+      <View style={[s.inner, { paddingBottom: keyboardPad }]}>
         {/* Messages list */}
         {loading ? (
           <ActivityIndicator style={{ flex: 1 }} color="#2563eb" />
@@ -203,9 +222,7 @@ function renderMentions(content: string, mentions: User[], isMe: boolean): React
       const name = part.slice(1).toLowerCase()
       const mentioned = mentions.find(u => u.name.split(' ')[0].toLowerCase() === name)
       if (mentioned) {
-        return (
-          <Text key={i} style={[s.mention, isMe && s.mentionMe]}>{part}</Text>
-        )
+        return <Text key={i} style={[s.mention, isMe && s.mentionMe]}>{part}</Text>
       }
     }
     return <Text key={i}>{part}</Text>
@@ -213,6 +230,7 @@ function renderMentions(content: string, mentions: User[], isMe: boolean): React
 }
 
 const s = StyleSheet.create({
+  inner: { flex: 1 },
   list: { padding: 12, paddingBottom: 8, flexGrow: 1 },
   empty: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingTop: 80 },
   emptyIcon: { fontSize: 48, marginBottom: 10 },
@@ -228,7 +246,11 @@ const s = StyleSheet.create({
   avatarText: { fontSize: 12, fontWeight: '700', color: '#2563eb' },
 
   bubble: { maxWidth: '75%', borderRadius: 16, padding: 10 },
-  bubbleThem: { backgroundColor: '#fff', borderTopLeftRadius: 4, shadowColor: '#000', shadowOpacity: 0.05, shadowRadius: 3, shadowOffset: { width: 0, height: 1 }, elevation: 1 },
+  bubbleThem: {
+    backgroundColor: '#fff', borderTopLeftRadius: 4,
+    shadowColor: '#000', shadowOpacity: 0.05, shadowRadius: 3,
+    shadowOffset: { width: 0, height: 1 }, elevation: 1,
+  },
   bubbleMe: { backgroundColor: '#2563eb', borderTopRightRadius: 4 },
 
   senderName: { fontSize: 11, fontWeight: '600', color: '#6b7280', marginBottom: 3 },
@@ -240,8 +262,7 @@ const s = StyleSheet.create({
   mentionMe: { backgroundColor: '#1d4ed8', color: '#bfdbfe' },
 
   mentionBox: {
-    backgroundColor: '#fff', borderTopWidth: 1, borderTopColor: '#e5e7eb',
-    maxHeight: 160,
+    backgroundColor: '#fff', borderTopWidth: 1, borderTopColor: '#e5e7eb', maxHeight: 160,
   },
   mentionItem: {
     flexDirection: 'row', alignItems: 'center', gap: 10,
