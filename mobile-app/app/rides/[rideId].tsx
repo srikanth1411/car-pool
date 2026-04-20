@@ -180,12 +180,10 @@ export default function RideDetailScreen() {
     setPayLoading(true)
     try {
       const order = await paymentsApi.createOrder(rideId)
-      // Build the return URL using our backend base — same URL the backend set in order_meta
       const backendBase = API_BASE_URL.replace('/api/v1', '')
-      const failUrl = `${backendBase}/api/v1/payments/return?paymentId=${order.paymentId}&status=FAILED`
-      // Generate HTML inline so there's no IP-based Origin header that Cashfree might block.
-      // baseUrl in the WebView is set to Cashfree's domain so SDK cross-origin checks pass.
-      const env = 'sandbox'
+      // Both URLs use the same pattern — the WebView intercepts them before they load
+      const successUrl = `${backendBase}/api/v1/payments/return?paymentId=${order.paymentId}&status=PAID`
+      const failUrl    = `${backendBase}/api/v1/payments/return?paymentId=${order.paymentId}&status=FAILED`
       setCheckoutHtml(`<!DOCTYPE html>
 <html>
 <head>
@@ -206,10 +204,11 @@ p{color:#6b7280;margin-top:16px;font-size:14px;}
 <script>
 (async()=>{
   try{
-    const cf=Cashfree({mode:'${env}'});
-    await cf.checkout({paymentSessionId:'${order.paymentSessionId}',redirectTarget:'_self'});
-    // Reached only if SDK resolves without redirecting — treat as incomplete
-    window.location.href='${failUrl}';
+    const cf=Cashfree({mode:'sandbox'});
+    const result=await cf.checkout({paymentSessionId:'${order.paymentSessionId}',redirectTarget:'_self'});
+    // Reached only when SDK resolves in-place (embedded/drop mode) instead of redirecting
+    const status=result&&result.paymentDetails&&result.paymentDetails.paymentStatus;
+    window.location.href=(status==='SUCCESS')?'${successUrl}':'${failUrl}';
   }catch(e){
     window.location.href='${failUrl}';
   }
@@ -225,35 +224,38 @@ p{color:#6b7280;margin-top:16px;font-size:14px;}
     }
   }
 
-  const handleWebViewNav = (navState: { url: string }) => {
-    if (!navState.url.includes('/payments/return')) return
+  // Intercepts BEFORE the WebView tries to load the URL — more reliable than
+  // onNavigationStateChange and avoids issues with HTTP/ATS blocking.
+  const handleShouldStartLoad = (request: { url: string }): boolean => {
+    if (!request.url.includes('/payments/return')) return true
 
-    // Extract paymentId from the return URL
-    const match = navState.url.match(/[?&]paymentId=([^&]+)/)
+    const match = request.url.match(/[?&]paymentId=([^&]+)/)
     const pid = match ? match[1] : null
-    const isFailed = navState.url.includes('status=FAILED')
+    const isFailed = !request.url.includes('status=PAID')
 
     setShowPayWebView(false)
 
     if (!pid || isFailed) {
-      Alert.alert('Payment Not Completed', 'Your payment was not completed. Please try again.')
-      return
+      setTimeout(() => Alert.alert('Payment Not Completed', 'Your payment was not completed. Please try again.'), 400)
+      return false
     }
 
-    // Always verify with Cashfree API — never trust the URL status param
+    // Always verify with Cashfree API — never trust the URL status param alone
     paymentsApi.verifyPayment(pid)
       .then(result => {
         if (result.status === 'SUCCESS') {
           Alert.alert('Payment Successful! 🎉', `₹${ride?.price?.toFixed(2)} paid. The driver's wallet has been credited.`)
         } else {
-          Alert.alert('Payment Pending', 'Payment not confirmed yet. If you completed the payment, please wait a moment and refresh.')
+          Alert.alert('Payment Pending', 'Payment not confirmed yet. If you completed it, please wait a moment and refresh.')
         }
         load()
       })
       .catch(() => {
-        Alert.alert('Could Not Verify', 'Payment may have gone through — please check your payment history before retrying.')
+        Alert.alert('Could Not Verify', 'Payment may have gone through — please check your history before retrying.')
         load()
       })
+
+    return false
   }
 
   const handleConfirmRequest = async (requestId: string) => {
@@ -415,7 +417,7 @@ p{color:#6b7280;margin-top:16px;font-size:14px;}
           <WebView
             source={{ html: checkoutHtml, baseUrl: 'https://payments-test.cashfree.com' }}
             style={{ flex: 1 }}
-            onNavigationStateChange={handleWebViewNav}
+            onShouldStartLoadWithRequest={handleShouldStartLoad}
             javaScriptEnabled
             domStorageEnabled
             originWhitelist={['*']}
