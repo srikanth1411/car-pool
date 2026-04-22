@@ -1,7 +1,7 @@
 import { useEffect, useState, useRef } from 'react'
 import {
   View, Text, ScrollView, TouchableOpacity, StyleSheet,
-  ActivityIndicator, Alert, TextInput, Modal, SafeAreaView,
+  ActivityIndicator, Alert, TextInput, Modal, SafeAreaView, AppState,
 } from 'react-native'
 import { WebView } from 'react-native-webview'
 import { KeyboardAwareScrollView } from 'react-native-keyboard-aware-scroll-view'
@@ -151,6 +151,21 @@ export default function RideDetailScreen() {
   }
 
   useEffect(() => { load() }, [rideId])
+
+  // Poll every 15 s while ride is DEPARTED so rider sees completion without manual refresh
+  useEffect(() => {
+    if (!ride || ride.status !== 'DEPARTED') return
+    const id = setInterval(load, 15000)
+    return () => clearInterval(id)
+  }, [ride?.status, rideId])
+
+  // Also refresh when app comes back to foreground
+  useEffect(() => {
+    const sub = AppState.addEventListener('change', state => {
+      if (state === 'active') load()
+    })
+    return () => sub.remove()
+  }, [rideId])
 
   // Auto-open payment when navigated here with ?pay=1 — fires at most once per mount
   useEffect(() => {
