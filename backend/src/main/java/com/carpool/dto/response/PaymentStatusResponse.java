@@ -11,7 +11,9 @@ import java.time.LocalDateTime;
 public class PaymentStatusResponse {
     private String paymentId;
     private String rideId;
-    private String status;       // PENDING | SUCCESS | FAILED | NOT_REQUIRED (no price on ride)
+    private String riderId;
+    private String riderName;
+    private String status;       // PENDING | SUCCESS | FAILED | NOT_PAID | NOT_REQUIRED
     private BigDecimal amount;
     private String cfOrderId;
     private String cfPaymentId;

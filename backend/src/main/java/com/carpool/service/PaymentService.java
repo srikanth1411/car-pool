@@ -152,6 +152,55 @@ public class PaymentService {
                         .build());
     }
 
+    // ─── All rider payment statuses for a ride (driver view) ──────────────────
+
+    public List<PaymentStatusResponse> getRidePaymentStatuses(String driverEmail, String rideId) {
+        User driver = userRepository.findById(driverEmail)
+                .orElseThrow(() -> new ResourceNotFoundException("User not found"));
+
+        Ride ride = rideRepository.findById(rideId)
+                .orElseThrow(() -> new ResourceNotFoundException("Ride not found"));
+
+        if (!ride.getDriver().getId().equals(driver.getId())) {
+            throw new BadRequestException("Only the driver can view all rider payment statuses");
+        }
+
+        // Get confirmed riders
+        List<RideRequest> confirmed = rideRequestRepository.findByRideId(rideId).stream()
+                .filter(r -> r.getStatus() == RequestStatus.CONFIRMED)
+                .toList();
+
+        // Map existing payments by rider id
+        Map<String, Payment> paymentByRider = paymentRepository.findByRideId(rideId).stream()
+                .collect(java.util.stream.Collectors.toMap(
+                        p -> p.getRider().getId(), p -> p, (a, b) -> a));
+
+        return confirmed.stream().map(req -> {
+            User rider = req.getRider();
+            Payment p = paymentByRider.get(rider.getId());
+            if (p != null) {
+                return PaymentStatusResponse.builder()
+                        .paymentId(p.getId())
+                        .rideId(rideId)
+                        .riderId(rider.getId())
+                        .riderName(rider.getName())
+                        .status(p.getStatus().name())
+                        .amount(p.getAmount())
+                        .createdAt(p.getCreatedAt())
+                        .updatedAt(p.getUpdatedAt())
+                        .build();
+            } else {
+                return PaymentStatusResponse.builder()
+                        .rideId(rideId)
+                        .riderId(rider.getId())
+                        .riderName(rider.getName())
+                        .status(ride.getPrice() != null ? "NOT_PAID" : "NOT_REQUIRED")
+                        .amount(ride.getPrice())
+                        .build();
+            }
+        }).toList();
+    }
+
     // ─── Wallet ─────────────────────────────────────────────────────────────────
 
     public WalletResponse getWallet(String userEmail) {

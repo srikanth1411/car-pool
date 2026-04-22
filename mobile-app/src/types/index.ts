@@ -165,6 +165,8 @@ export interface Notification {
 export interface Payment {
   paymentId?: string
   rideId: string
+  riderId?: string
+  riderName?: string
   status: 'PENDING' | 'SUCCESS' | 'FAILED' | 'NOT_PAID' | 'NOT_REQUIRED'
   amount?: number
   cfOrderId?: string

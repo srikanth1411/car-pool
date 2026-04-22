@@ -107,6 +107,7 @@ export default function RideDetailScreen() {
   const [message, setMessage] = useState('')
   const [error, setError] = useState('')
   const [paymentStatus, setPaymentStatus] = useState<Payment | null>(null)
+  const [riderPayments, setRiderPayments] = useState<Payment[]>([])
   const [payLoading, setPayLoading] = useState(false)
   const [showPayWebView, setShowPayWebView] = useState(false)
   const [paymentHtml, setPaymentHtml] = useState('')
@@ -126,6 +127,12 @@ export default function RideDetailScreen() {
       if (r.driver.id === user?.id) {
         const reqs = await ridesApi.getRideRequests(rideId)
         setRequests(reqs)
+        if (r.price && (r.status === 'DEPARTED' || r.status === 'COMPLETED')) {
+          try {
+            const ps = await paymentsApi.getRidePaymentStatuses(rideId)
+            setRiderPayments(ps)
+          } catch { /* ignore */ }
+        }
       } else {
         const booked = await ridesApi.getBookedRides()
         const isOnRide = booked.some(b => b.id === rideId)
@@ -388,13 +395,26 @@ export default function RideDetailScreen() {
       {isDriver && requests.length > 0 && (
         <View style={s.section}>
           <Text style={s.sectionTitle}>Seat Requests ({requests.length})</Text>
-          {requests.map(req => (
+          {requests.map(req => {
+            const rp = riderPayments.find(p => p.riderId === req.rider.id)
+            return (
             <View key={req.id} style={s.reqCard}>
               <View style={s.reqHeader}>
                 <Text style={s.reqName}>{req.rider.name}</Text>
                 <RequestStatusBadge status={req.status} />
               </View>
               <Text style={s.reqMeta}>{req.seatsRequested} seat{req.seatsRequested > 1 ? 's' : ''}</Text>
+              {rp && ride.price != null && (
+                <View style={[s.payStatusRow, rp.status === 'SUCCESS' ? s.payStatusPaid : s.payStatusUnpaid]}>
+                  <Text style={[s.payStatusText, rp.status === 'SUCCESS' ? s.payStatusTextPaid : s.payStatusTextUnpaid]}>
+                    {rp.status === 'SUCCESS'
+                      ? `✅ Paid ₹${rp.amount?.toFixed(2)}`
+                      : rp.status === 'PENDING'
+                      ? '⏳ Payment Pending'
+                      : '❌ Not Paid'}
+                  </Text>
+                </View>
+              )}
               {req.message && <Text style={s.reqMsg}>"{req.message}"</Text>}
               {req.status === 'PENDING' && (
                 <View style={s.reqActions}>
@@ -407,7 +427,8 @@ export default function RideDetailScreen() {
                 </View>
               )}
             </View>
-          ))}
+          )})}
+
         </View>
       )}
 
@@ -575,6 +596,12 @@ const s = StyleSheet.create({
   confirmBtnText: { color: '#16a34a', fontWeight: '600' },
   declineBtn: { flex: 1, backgroundColor: '#fee2e2', borderRadius: 8, paddingVertical: 8, alignItems: 'center' },
   declineBtnText: { color: '#dc2626', fontWeight: '600' },
+  payStatusRow: { borderRadius: 8, paddingHorizontal: 10, paddingVertical: 6, marginBottom: 6, alignSelf: 'flex-start' },
+  payStatusPaid: { backgroundColor: '#dcfce7' },
+  payStatusUnpaid: { backgroundColor: '#fef9c3' },
+  payStatusText: { fontSize: 13, fontWeight: '600' },
+  payStatusTextPaid: { color: '#16a34a' },
+  payStatusTextUnpaid: { color: '#92400e' },
   webHeader: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
     paddingHorizontal: 16, paddingVertical: 12, backgroundColor: '#1e293b',

@@ -42,6 +42,15 @@ public class PaymentController {
         return ResponseEntity.ok(paymentService.getPaymentStatus(user.getUsername(), rideId));
     }
 
+    @GetMapping("/ride/{rideId}/all")
+    @SecurityRequirement(name = "bearerAuth")
+    @Operation(summary = "Get payment status for every confirmed rider on a ride (driver only)")
+    public ResponseEntity<java.util.List<PaymentStatusResponse>> getRidePaymentStatuses(
+            @AuthenticationPrincipal UserDetails user,
+            @PathVariable String rideId) {
+        return ResponseEntity.ok(paymentService.getRidePaymentStatuses(user.getUsername(), rideId));
+    }
+
     @GetMapping("/wallet")
     @SecurityRequirement(name = "bearerAuth")
     @Operation(summary = "Get driver wallet balance and recent credits")

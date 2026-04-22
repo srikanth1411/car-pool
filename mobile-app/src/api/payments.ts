@@ -13,4 +13,7 @@ export const paymentsApi = {
 
   getWallet: () =>
     apiClient.get<Wallet>('/payments/wallet').then((r) => r.data),
+
+  getRidePaymentStatuses: (rideId: string) =>
+    apiClient.get<Payment[]>(`/payments/ride/${rideId}/all`).then((r) => r.data),
 }
