@@ -112,6 +112,7 @@ export default function RideDetailScreen() {
   const [showPayWebView, setShowPayWebView] = useState(false)
   const [paymentHtml, setPaymentHtml] = useState('')
   const currentPaymentId = useRef<string | null>(null)
+  const autoPayTriggered = useRef(false)
 
   const isDriver = ride?.driver.id === user?.id
 
@@ -151,11 +152,13 @@ export default function RideDetailScreen() {
 
   useEffect(() => { load() }, [rideId])
 
-  // Auto-open payment when navigated here with ?pay=1
+  // Auto-open payment when navigated here with ?pay=1 — fires at most once per mount
   useEffect(() => {
     if (pay !== '1' || loading || !ride || !isBooked) return
     if (paymentStatus?.status === 'SUCCESS') return
     if (ride.price == null || (ride.status !== 'DEPARTED' && ride.status !== 'COMPLETED')) return
+    if (autoPayTriggered.current) return
+    autoPayTriggered.current = true
     handlePayNow()
   }, [pay, loading, ride, isBooked, paymentStatus])
 
