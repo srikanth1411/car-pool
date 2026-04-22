@@ -219,10 +219,10 @@ export default function RideDetailScreen() {
     setPayLoading(true)
     try {
       const order = await paymentsApi.createOrder(rideId)
-      // Use a dummy return URL — we intercept it in onShouldStartLoadWithRequest
-      // before the WebView ever makes an HTTP request, so it doesn't need to be reachable.
-      // Cashfree replaces {order_status} with PAID/FAILED/etc. on redirect.
-      const returnUrl = `http://carpool.local/payments/return?paymentId=${order.paymentId}&status={order_status}`
+      // Dummy return URL — intercepted in onShouldStartLoadWithRequest before any HTTP request.
+      // We don't rely on {order_status} here (JS SDK may not replace it); we call verifyPayment
+      // directly to get the real status from Cashfree's API.
+      const returnUrl = `http://carpool.local/payments/return?paymentId=${order.paymentId}`
       currentPaymentId.current = order.paymentId
       setPaymentHtml(buildCheckoutHtml(order.paymentSessionId, returnUrl))
       setShowPayWebView(true)
@@ -236,31 +236,29 @@ export default function RideDetailScreen() {
   // Called before WebView loads any URL — return false to block + handle ourselves
   const handleWebViewNav = ({ url }: { url: string }): boolean => {
     if (url.includes('carpool.local/payments/return')) {
-      const statusMatch = url.match(/[?&]status=([^&]+)/)
       const payIdMatch = url.match(/[?&]paymentId=([^&]+)/)
-      const status = statusMatch ? decodeURIComponent(statusMatch[1]) : 'FAILED'
       const payId = payIdMatch ? payIdMatch[1] : currentPaymentId.current
 
       setShowPayWebView(false)
 
-      if (status === 'PAID' && payId) {
+      if (payId) {
         setPayLoading(true)
+        // Always verify with Cashfree API — don't trust URL params since the JS SDK
+        // may not replace {order_status} template variables.
         paymentsApi.verifyPayment(payId)
           .then(result => {
             if (result.status === 'SUCCESS') {
               Alert.alert('Payment Successful! 🎉', `₹${ride?.price?.toFixed(2)} paid. The driver's wallet has been credited.`)
             } else {
-              Alert.alert('Payment Pending', 'Payment received but not yet confirmed. Please wait a moment.')
+              Alert.alert('Payment Not Completed', 'Your payment was not completed. Please try again.')
             }
             load()
           })
           .catch(() => {
-            Alert.alert('Verification Issue', 'Payment may have gone through — please check your history before retrying.')
+            Alert.alert('Verification Issue', 'Could not confirm payment status. Please check your payment history.')
             load()
           })
           .finally(() => setPayLoading(false))
-      } else {
-        Alert.alert('Payment Not Completed', 'Your payment was not completed. Please try again.')
       }
       return false
     }
