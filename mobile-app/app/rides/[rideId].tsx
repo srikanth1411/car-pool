@@ -4,7 +4,8 @@ import {
   ActivityIndicator, Alert, TextInput, Modal, SafeAreaView,
 } from 'react-native'
 import { KeyboardAwareScrollView } from 'react-native-keyboard-aware-scroll-view'
-import { WebView } from 'react-native-webview'
+import * as WebBrowser from 'expo-web-browser'
+import * as Linking from 'expo-linking'
 import { useLocalSearchParams, useRouter } from 'expo-router'
 import { ridesApi } from '../../src/api/rides'
 import { groupsApi } from '../../src/api/groups'
@@ -68,8 +69,6 @@ export default function RideDetailScreen() {
   const [message, setMessage] = useState('')
   const [error, setError] = useState('')
   const [paymentStatus, setPaymentStatus] = useState<Payment | null>(null)
-  const [showPayWebView, setShowPayWebView] = useState(false)
-  const [checkoutHtml, setCheckoutHtml] = useState('')
   const [payLoading, setPayLoading] = useState(false)
 
   const isDriver = ride?.driver.id === user?.id
@@ -105,7 +104,37 @@ export default function RideDetailScreen() {
 
   useEffect(() => { load() }, [rideId])
 
-  // Auto-open payment WebView when navigated here with ?pay=1
+  // Listen for deep link return from Cashfree (carpool://payment?paymentId=...&status=...)
+  useEffect(() => {
+    const sub = Linking.addEventListener('url', ({ url }) => {
+      if (!url.startsWith('carpool://payment')) return
+      const match = url.match(/[?&]paymentId=([^&]+)/)
+      const pid = match ? match[1] : null
+      const isPaid = url.includes('status=PAID')
+
+      if (!pid || !isPaid) {
+        Alert.alert('Payment Not Completed', 'Your payment was not completed. Please try again.')
+        return
+      }
+
+      paymentsApi.verifyPayment(pid)
+        .then(result => {
+          if (result.status === 'SUCCESS') {
+            Alert.alert('Payment Successful! 🎉', `₹${ride?.price?.toFixed(2)} paid. The driver's wallet has been credited.`)
+          } else {
+            Alert.alert('Payment Pending', 'Payment not confirmed yet. Please wait a moment and refresh.')
+          }
+          load()
+        })
+        .catch(() => {
+          Alert.alert('Could Not Verify', 'Payment may have gone through — please check your history before retrying.')
+          load()
+        })
+    })
+    return () => sub.remove()
+  }, [ride])
+
+  // Auto-open payment when navigated here with ?pay=1
   useEffect(() => {
     if (pay !== '1' || loading || !ride || !isBooked) return
     if (paymentStatus?.status === 'SUCCESS') return
@@ -181,81 +210,16 @@ export default function RideDetailScreen() {
     try {
       const order = await paymentsApi.createOrder(rideId)
       const backendBase = API_BASE_URL.replace('/api/v1', '')
-      // Both URLs use the same pattern — the WebView intercepts them before they load
-      const successUrl = `${backendBase}/api/v1/payments/return?paymentId=${order.paymentId}&status=PAID`
-      const failUrl    = `${backendBase}/api/v1/payments/return?paymentId=${order.paymentId}&status=FAILED`
-      setCheckoutHtml(`<!DOCTYPE html>
-<html>
-<head>
-<meta charset="UTF-8"/>
-<meta name="viewport" content="width=device-width,initial-scale=1"/>
-<style>
-body{margin:0;display:flex;flex-direction:column;align-items:center;justify-content:center;
-min-height:100vh;background:#f9fafb;font-family:sans-serif;}
-.sp{width:40px;height:40px;border:3px solid #e5e7eb;border-top-color:#2563eb;
-border-radius:50%;animation:spin .8s linear infinite;}
-@keyframes spin{to{transform:rotate(360deg);}}
-p{color:#6b7280;margin-top:16px;font-size:14px;}
-</style>
-<script src="https://sdk.cashfree.com/js/v3/cashfree.js"></script>
-</head>
-<body>
-<div class="sp"></div><p>Opening secure payment…</p>
-<script>
-(async()=>{
-  try{
-    const cf=Cashfree({mode:'sandbox'});
-    const result=await cf.checkout({paymentSessionId:'${order.paymentSessionId}',redirectTarget:'_self'});
-    // Reached only when SDK resolves in-place (embedded/drop mode) instead of redirecting
-    const status=result&&result.paymentDetails&&result.paymentDetails.paymentStatus;
-    window.location.href=(status==='SUCCESS')?'${successUrl}':'${failUrl}';
-  }catch(e){
-    window.location.href='${failUrl}';
-  }
-})();
-</script>
-</body>
-</html>`)
-      setShowPayWebView(true)
+      // Open the backend's checkout page in SFSafariViewController (iOS) / Chrome Custom Tab (Android).
+      // This is a real browser — the Cashfree SDK works reliably here.
+      // After payment, Cashfree → backend /return → carpool:// deep link → Linking listener above.
+      const checkoutUrl = `${backendBase}/api/v1/payments/checkout/${order.paymentId}`
+      await WebBrowser.openBrowserAsync(checkoutUrl, { dismissButtonStyle: 'cancel' })
     } catch (e) {
       Alert.alert('Payment Error', extractError(e))
     } finally {
       setPayLoading(false)
     }
-  }
-
-  // Intercepts BEFORE the WebView tries to load the URL — more reliable than
-  // onNavigationStateChange and avoids issues with HTTP/ATS blocking.
-  const handleShouldStartLoad = (request: { url: string }): boolean => {
-    if (!request.url.includes('/payments/return')) return true
-
-    const match = request.url.match(/[?&]paymentId=([^&]+)/)
-    const pid = match ? match[1] : null
-    const isFailed = !request.url.includes('status=PAID')
-
-    setShowPayWebView(false)
-
-    if (!pid || isFailed) {
-      setTimeout(() => Alert.alert('Payment Not Completed', 'Your payment was not completed. Please try again.'), 400)
-      return false
-    }
-
-    // Always verify with Cashfree API — never trust the URL status param alone
-    paymentsApi.verifyPayment(pid)
-      .then(result => {
-        if (result.status === 'SUCCESS') {
-          Alert.alert('Payment Successful! 🎉', `₹${ride?.price?.toFixed(2)} paid. The driver's wallet has been credited.`)
-        } else {
-          Alert.alert('Payment Pending', 'Payment not confirmed yet. If you completed it, please wait a moment and refresh.')
-        }
-        load()
-      })
-      .catch(() => {
-        Alert.alert('Could Not Verify', 'Payment may have gone through — please check your history before retrying.')
-        load()
-      })
-
-    return false
   }
 
   const handleConfirmRequest = async (requestId: string) => {
@@ -404,29 +368,6 @@ p{color:#6b7280;margin-top:16px;font-size:14px;}
         </View>
       )}
 
-      {/* Cashfree payment WebView modal */}
-      <Modal visible={showPayWebView} animationType="slide" onRequestClose={() => setShowPayWebView(false)}>
-        <SafeAreaView style={{ flex: 1, backgroundColor: '#fff' }}>
-          <View style={s.webViewHeader}>
-            <TouchableOpacity onPress={() => setShowPayWebView(false)}>
-              <Text style={s.webViewClose}>✕ Close</Text>
-            </TouchableOpacity>
-            <Text style={s.webViewTitle}>Secure Payment</Text>
-            <View style={{ width: 60 }} />
-          </View>
-          <WebView
-            source={{ html: checkoutHtml, baseUrl: 'https://payments-test.cashfree.com' }}
-            style={{ flex: 1 }}
-            onShouldStartLoadWithRequest={handleShouldStartLoad}
-            javaScriptEnabled
-            domStorageEnabled
-            originWhitelist={['*']}
-            startInLoadingState
-            renderLoading={() => <ActivityIndicator style={{ flex: 1 }} color="#2563eb" />}
-          />
-        </SafeAreaView>
-      </Modal>
-
       {/* Book seat modal */}
       <Modal visible={showBookModal} animationType="slide" transparent onRequestClose={() => setShowBookModal(false)}>
         <View style={{ flex: 1 }}>
@@ -551,9 +492,6 @@ const s = StyleSheet.create({
   payBtnText: { color: '#fff', fontWeight: '700', fontSize: 15 },
   paidPill: { backgroundColor: '#f0fdf4', borderWidth: 1, borderColor: '#86efac', borderRadius: 10, paddingVertical: 10, alignItems: 'center' },
   paidText: { color: '#16a34a', fontWeight: '600', fontSize: 14 },
-  webViewHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 16, paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: '#e5e7eb' },
-  webViewClose: { color: '#2563eb', fontSize: 15, fontWeight: '500', width: 60 },
-  webViewTitle: { fontSize: 16, fontWeight: '700', color: '#111827' },
   section: { marginBottom: 20 },
   sectionTitle: { fontSize: 15, fontWeight: '700', color: '#111827', marginBottom: 10 },
   reqCard: { backgroundColor: '#fff', borderRadius: 12, padding: 14, marginBottom: 10 },

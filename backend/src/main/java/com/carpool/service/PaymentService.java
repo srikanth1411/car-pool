@@ -353,9 +353,19 @@ public class PaymentService {
     }
 
     public String buildReturnHtml(String paymentId, String status) {
-        boolean success = "PAID".equalsIgnoreCase(status) || "SUCCESS".equalsIgnoreCase(status);
-        return resultHtml(success ? "success" : "failed",
-                success ? "Payment Successful! Your wallet has been updated." : "Payment Failed. Please try again.");
+        // Redirect to the app's deep link so expo-web-browser (SFSafariViewController) closes
+        // and the app's Linking listener handles the result.
+        String deepLink = "carpool://payment?paymentId=" + paymentId + "&status=" + status;
+        return "<!DOCTYPE html><html><head><meta charset='UTF-8'/>" +
+               "<meta name='viewport' content='width=device-width,initial-scale=1'/>" +
+               "<title>Returning to app…</title>" +
+               "<style>body{font-family:sans-serif;display:flex;align-items:center;justify-content:center;" +
+               "min-height:100vh;margin:0;background:#f9fafb;}" +
+               ".card{text-align:center;padding:40px;}" +
+               "p{color:#6b7280;font-size:15px;}</style></head><body>" +
+               "<div class='card'><p>Returning to app…</p></div>" +
+               "<script>window.location.href='" + deepLink + "';</script>" +
+               "</body></html>";
     }
 
     private String resultHtml(String type, String message) {
