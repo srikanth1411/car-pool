@@ -1,6 +1,6 @@
-import { useEffect, useState, useMemo, useRef, useCallback } from 'react'
+import { useEffect, useState, useMemo } from 'react'
 import {
-  View, Text, ScrollView, TouchableOpacity, StyleSheet, ActivityIndicator, AppState,
+  View, Text, ScrollView, TouchableOpacity, StyleSheet, ActivityIndicator,
 } from 'react-native'
 import { useRouter } from 'expo-router'
 import { ridesApi } from '../../src/api/rides'
@@ -41,7 +41,7 @@ export default function RidesScreen() {
   const [loading, setLoading] = useState(true)
   const [activeTab, setActiveTab] = useState<Tab>('browse')
 
-  const loadRides = useCallback(() => {
+  useEffect(() => {
     Promise.all([
       ridesApi.getAllGroupRides(),
       ridesApi.getBookedRides(),
@@ -52,16 +52,6 @@ export default function RidesScreen() {
       setDrivingIds(new Set(driving.map(r => r.id)))
     }).finally(() => setLoading(false))
   }, [user])
-
-  useEffect(() => { loadRides() }, [loadRides])
-
-  // Refresh when app comes back to foreground (e.g. driver completed ride)
-  useEffect(() => {
-    const sub = AppState.addEventListener('change', state => {
-      if (state === 'active') loadRides()
-    })
-    return () => sub.remove()
-  }, [loadRides])
 
   const browsable = useMemo(() =>
     allRides.filter(r => r.status === 'OPEN' && r.availableSeats > 0 && !drivingIds.has(r.id) && !bookedIds.has(r.id)),
