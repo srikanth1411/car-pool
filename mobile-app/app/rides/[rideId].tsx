@@ -256,18 +256,8 @@ export default function RideDetailScreen() {
         // Always verify with Cashfree API — don't trust URL params since the JS SDK
         // may not replace {order_status} template variables.
         paymentsApi.verifyPayment(payId)
-          .then(result => {
-            if (result.status === 'SUCCESS') {
-              Alert.alert('Payment Successful! 🎉', `₹${ride?.price?.toFixed(2)} paid. The driver's wallet has been credited.`)
-            } else {
-              Alert.alert('Payment Not Completed', 'Your payment was not completed. Please try again.')
-            }
-            load()
-          })
-          .catch(() => {
-            Alert.alert('Verification Issue', 'Could not confirm payment status. Please check your payment history.')
-            load()
-          })
+          .then(() => load())
+          .catch(() => load())
           .finally(() => setPayLoading(false))
       }
       return false
