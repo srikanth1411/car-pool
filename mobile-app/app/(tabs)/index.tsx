@@ -96,10 +96,13 @@ export default function DashboardScreen() {
       const allMyRides = [...booked, ...driving].filter(
         (r, i, arr) => arr.findIndex(x => x.id === r.id) === i
       )
-      const departed = allMyRides.find(r => r.status === 'DEPARTED') ?? null
+      // Show DEPARTED ride as current; fall back to COMPLETED so Pay Now stays visible
+      const departed = allMyRides.find(r => r.status === 'DEPARTED')
+        ?? allMyRides.find(r => r.status === 'COMPLETED')
+        ?? null
       setCurrentRide(departed)
 
-      // Fetch payment status for booked riders on the current departed ride
+      // Fetch payment status for booked riders on the current ride
       if (departed && departed.driver.id !== user?.id && departed.price) {
         try {
           const ps = await paymentsApi.getPaymentStatus(departed.id)
@@ -282,17 +285,19 @@ export default function DashboardScreen() {
                 <Text style={styles.cardTime}>{formatTime(currentRide.departureTime)}</Text>
                 <Text style={styles.cardGroup}>{currentRide.groupName}</Text>
                 <View style={styles.cardActions}>
-                  <TouchableOpacity
-                    style={styles.chatBtn}
-                    onPress={() => router.push(`/rides/chat/${currentRide.id}`)}
-                  >
-                    <Text style={styles.chatBtnText}>💬 Chat</Text>
-                  </TouchableOpacity>
-                  {currentRide.driver.id === user?.id ? (
+                  {currentRide.status === 'DEPARTED' && (
+                    <TouchableOpacity
+                      style={styles.chatBtn}
+                      onPress={() => router.push(`/rides/chat/${currentRide.id}`)}
+                    >
+                      <Text style={styles.chatBtnText}>💬 Chat</Text>
+                    </TouchableOpacity>
+                  )}
+                  {currentRide.driver.id === user?.id && currentRide.status === 'DEPARTED' ? (
                     <TouchableOpacity style={styles.completeBtn} onPress={() => handleComplete(currentRide.id)}>
                       <Text style={styles.completeBtnText}>✅ Complete</Text>
                     </TouchableOpacity>
-                  ) : currentRide.price != null && currentRidePaymentStatus !== 'SUCCESS' ? (
+                  ) : currentRide.driver.id !== user?.id && currentRide.price != null && currentRidePaymentStatus !== 'SUCCESS' ? (
                     <TouchableOpacity style={styles.payBtn} onPress={() => handlePayNow(currentRide.id)}>
                       <Text style={styles.payBtnText}>💳 Pay ₹{currentRide.price.toFixed(2)}</Text>
                     </TouchableOpacity>
