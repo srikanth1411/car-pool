@@ -112,13 +112,12 @@ public class PayoutService {
             return toSettlementResponse(account, settlement);
         }
 
-        // Authenticate with Cashfree Payouts and register beneficiary
-        String token = getPayoutsToken();
-        String beneficiaryId = ensureBeneficiary(account, driver, token);
+        // Register beneficiary (v2: no separate auth step)
+        String beneficiaryId = ensureBeneficiary(account, driver);
 
-        // Call Cashfree Payouts transfer API
+        // Call Cashfree Payouts v2 transfer API
         try {
-            String transferId = callCashfreeTransfer(beneficiaryId, amount, settlement.getId(), token);
+            String transferId = callCashfreeTransfer(beneficiaryId, amount, settlement.getId());
             settlement.setCfTransferId(transferId);
             settlement.setStatus("SUCCESS");
 
@@ -165,60 +164,45 @@ public class PayoutService {
         return id != null && !id.isBlank() && key != null && !key.isBlank();
     }
 
-    private String getPayoutsToken() {
-        if (!payoutsConfigured()) {
-            throw new RuntimeException(
-                "Cashfree Payouts credentials not configured. " +
-                "Enable the Payouts product in your Cashfree dashboard, then set " +
-                "CASHFREE_PAYOUTS_APP_ID and CASHFREE_PAYOUTS_SECRET_KEY environment variables.");
-        }
+    // Cashfree Payouts v2: credentials sent on every request — no separate token step
+    private HttpHeaders buildPayoutHeaders() {
         HttpHeaders h = new HttpHeaders();
         h.setContentType(MediaType.APPLICATION_JSON);
-        h.set("X-Client-Id", cashfree.getPayoutsAppId());
-        h.set("X-Client-Secret", cashfree.getPayoutsSecretKey());
-
-        Map<?, ?> response = restTemplate.exchange(
-                getPayoutsBaseUrl() + "/payout/v1/authorize",
-                HttpMethod.POST,
-                new HttpEntity<>(null, h),
-                Map.class
-        ).getBody();
-
-        if (response == null) throw new RuntimeException("No response from Cashfree Payouts auth");
-        if (!"SUCCESS".equalsIgnoreCase(String.valueOf(response.get("status")))) {
-            throw new RuntimeException("Cashfree Payouts auth failed: " + response.get("message"));
-        }
-        @SuppressWarnings("unchecked")
-        Map<String, Object> data = (Map<String, Object>) response.get("data");
-        return String.valueOf(data.get("token"));
-    }
-
-    private HttpHeaders buildPayoutHeaders(String token) {
-        HttpHeaders h = new HttpHeaders();
-        h.setContentType(MediaType.APPLICATION_JSON);
-        h.setBearerAuth(token);
+        h.set("x-client-id", cashfree.getPayoutsAppId());
+        h.set("x-client-secret", cashfree.getPayoutsSecretKey());
+        h.set("x-api-version", "2024-01-01");
         return h;
     }
 
-    private String ensureBeneficiary(DriverBankAccount account, User driver, String token) {
+    private String ensureBeneficiary(DriverBankAccount account, User driver) {
         if (account.getCfBeneficiaryId() != null) return account.getCfBeneficiaryId();
 
         String beneId = "bene_" + driver.getId().replace("-", "").substring(0, 12);
 
+        Map<String, Object> contactDetails = new LinkedHashMap<>();
+        contactDetails.put("beneficiary_email", driver.getId());
+        contactDetails.put("beneficiary_phone", "9999999999");
+        contactDetails.put("beneficiary_country_code", "+91");
+        contactDetails.put("beneficiary_address", "India");
+        contactDetails.put("beneficiary_city", "India");
+        contactDetails.put("beneficiary_state", "India");
+        contactDetails.put("beneficiary_postal_code", "000000");
+
+        Map<String, Object> instrumentDetails = new LinkedHashMap<>();
+        instrumentDetails.put("bank_account_number", account.getAccountNumber());
+        instrumentDetails.put("bank_ifsc", account.getIfscCode());
+
         Map<String, Object> body = new LinkedHashMap<>();
-        body.put("beneId", beneId);
-        body.put("name", account.getAccountHolderName());
-        body.put("email", driver.getId());
-        body.put("phone", "9999999999");
-        body.put("bankAccount", account.getAccountNumber());
-        body.put("ifsc", account.getIfscCode());
-        body.put("address1", "India");
+        body.put("beneficiary_id", beneId);
+        body.put("beneficiary_name", account.getAccountHolderName());
+        body.put("beneficiary_instrument_details", instrumentDetails);
+        body.put("beneficiary_contact_details", contactDetails);
 
         try {
             restTemplate.exchange(
-                    getPayoutsBaseUrl() + "/payout/v1/addBeneficiary",
+                    getPayoutsBaseUrl() + "/payout/v2/beneficiary",
                     HttpMethod.POST,
-                    new HttpEntity<>(body, buildPayoutHeaders(token)),
+                    new HttpEntity<>(body, buildPayoutHeaders()),
                     Map.class
             );
         } catch (Exception e) {
@@ -231,28 +215,32 @@ public class PayoutService {
         return beneId;
     }
 
-    private String callCashfreeTransfer(String beneficiaryId, BigDecimal amount, String settlementId, String token) {
+    private String callCashfreeTransfer(String beneficiaryId, BigDecimal amount, String settlementId) {
         String transferId = "settle_" + settlementId.replace("-", "").substring(0, 16);
 
+        Map<String, Object> beneficiaryDetails = new LinkedHashMap<>();
+        beneficiaryDetails.put("beneficiary_id", beneficiaryId);
+
         Map<String, Object> body = new LinkedHashMap<>();
-        body.put("beneId", beneficiaryId);
-        body.put("amount", amount.toPlainString());
-        body.put("transferId", transferId);
-        body.put("transferMode", "NEFT");
-        body.put("remarks", "Carpool wallet settlement");
+        body.put("transfer_id", transferId);
+        body.put("transfer_amount", amount);
+        body.put("beneficiary_details", beneficiaryDetails);
+        body.put("transfer_currency", "INR");
+        body.put("transfer_mode", "banktransfer");
+        body.put("transfer_remarks", "Carpool wallet settlement");
 
         Map<?, ?> response = restTemplate.exchange(
-                getPayoutsBaseUrl() + "/payout/v1/requestTransfer",
+                getPayoutsBaseUrl() + "/payout/v2/transfers",
                 HttpMethod.POST,
-                new HttpEntity<>(body, buildPayoutHeaders(token)),
+                new HttpEntity<>(body, buildPayoutHeaders()),
                 Map.class
         ).getBody();
 
         if (response == null) throw new RuntimeException("Empty response from Cashfree Payouts");
 
-        Object status = response.get("status");
-        if (!"SUCCESS".equalsIgnoreCase(String.valueOf(status))) {
-            Object msg = response.get("message");
+        Object status = response.get("transfer_status");
+        if ("FAILED".equalsIgnoreCase(String.valueOf(status))) {
+            Object msg = response.get("transfer_message");
             throw new RuntimeException("Cashfree Payouts error: " + msg);
         }
         return transferId;
