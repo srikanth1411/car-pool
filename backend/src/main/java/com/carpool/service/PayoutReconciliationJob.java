@@ -45,17 +45,14 @@ public class PayoutReconciliationJob {
             try {
                 @SuppressWarnings("unchecked")
                 Map<String, Object> resp = (Map<String, Object>) client
-                        .get().uri(u -> u.path("/v1/getTransferStatus")
-                                .queryParam("transferId", pr.getRequestId()).build())
+                        .get().uri("/transfers/" + pr.getRequestId())
                         .retrieve()
                         .bodyToMono(Map.class)
                         .block();
 
                 if (resp == null) continue;
 
-                Map<?, ?> data = (Map<?, ?>) resp.get("data");
-                Map<?, ?> transfer = data != null ? (Map<?, ?>) data.get("transfer") : null;
-                Object statusObj = transfer != null ? transfer.get("status") : null;
+                Object statusObj = resp.get("transfer_status");
                 String transferStatus = statusObj != null ? statusObj.toString() : "";
                 log.info("Reconciliation: requestId={} transferStatus={}", pr.getRequestId(), transferStatus);
 

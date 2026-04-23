@@ -227,46 +227,52 @@ public class PayoutService {
                 .toList();
     }
 
-    // ─── Cashfree Payouts v1 helpers ────────────────────────────────────────────
+    // ─── Cashfree Payouts v2 helpers ─────────────────────────────────────────────
 
     private void ensureBeneficiary(WebClient client, DriverBankAccount account, String driverEmail) {
+        Map<String, Object> instrumentDetails = new LinkedHashMap<>();
+        instrumentDetails.put("bank_account_number", account.getAccountNumber());
+        instrumentDetails.put("bank_ifsc", account.getIfscCode());
+
+        Map<String, Object> contactDetails = new LinkedHashMap<>();
+        contactDetails.put("beneficiary_email", driverEmail);
+        contactDetails.put("beneficiary_phone", "9999999999");
+
         Map<String, Object> body = new LinkedHashMap<>();
-        body.put("beneId", account.getCfBeneficiaryId());
-        body.put("name", account.getAccountHolderName());
-        body.put("email", driverEmail);
-        body.put("phone", "9999999999");
-        body.put("address1", "India");
-        body.put("bankAccount", account.getAccountNumber());
-        body.put("ifsc", account.getIfscCode());
+        body.put("beneficiary_id", account.getCfBeneficiaryId());
+        body.put("beneficiary_name", account.getAccountHolderName());
+        body.put("beneficiary_instrument_details", instrumentDetails);
+        body.put("beneficiary_contact_details", contactDetails);
 
         try {
-            Map<?, ?> resp = client.post().uri("/v1/addBeneficiary")
+            Map<?, ?> resp = client.post().uri("/beneficiary")
                     .bodyValue(body).retrieve().bodyToMono(Map.class).block();
-            log.info("Add beneficiary response: {}", resp);
+            log.info("Create beneficiary response: {}", resp);
         } catch (WebClientResponseException e) {
-            String body2 = e.getResponseBodyAsString();
-            if (body2.contains("already") || body2.contains("409") || body2.contains("BNF_EXISTS")) {
+            String respBody = e.getResponseBodyAsString();
+            if (respBody.contains("already") || respBody.contains("BNF_EXISTS") || e.getStatusCode().value() == 409) {
                 log.info("Beneficiary {} already exists", account.getCfBeneficiaryId());
             } else {
-                log.warn("Add beneficiary error: {} — {}", e.getStatusCode(), body2);
+                log.warn("Create beneficiary error: {} — {}", e.getStatusCode(), respBody);
             }
         }
     }
 
     @SuppressWarnings("unchecked")
     private void initiateTransfer(WebClient client, String requestId, BigDecimal amount, String beneficiaryId) {
+        Map<String, Object> beneficiaryDetails = new LinkedHashMap<>();
+        beneficiaryDetails.put("beneficiary_id", beneficiaryId);
+
         Map<String, Object> body = new LinkedHashMap<>();
-        body.put("amount", amount);
-        body.put("transferId", requestId);
-        body.put("transferMode", "banktransfer");
-        body.put("beneId", beneficiaryId);
-        body.put("remarks", "Carpool wallet settlement");
+        body.put("transfer_id", requestId);
+        body.put("transfer_amount", amount);
+        body.put("beneficiary_details", beneficiaryDetails);
 
         Map<String, Object> response = (Map<String, Object>) client
-                .post().uri("/v1/requestTransfer")
+                .post().uri("/transfers")
                 .bodyValue(body).retrieve().bodyToMono(Map.class).block();
 
-        log.info("Cashfree transfer response: {}", response);
+        log.info("Cashfree v2 transfer response: {}", response);
 
         if (response == null) throw new RuntimeException("Empty response from Cashfree Payouts");
 
@@ -275,7 +281,6 @@ public class PayoutService {
         }
     }
 
-    @SuppressWarnings("unchecked")
     private WebClient buildPayoutsClient() {
         String baseUrl = cashfree.getBaseUrl().contains("sandbox")
                 ? "https://sandbox.cashfree.com/payout"
@@ -284,32 +289,17 @@ public class PayoutService {
         long timestamp = System.currentTimeMillis() / 1000;
         String signature = generateCfSignature(cashfree.getPayoutsAppId(), timestamp);
 
-        WebClient.Builder authBuilder = webClientBuilder.baseUrl(baseUrl)
-                .defaultHeader("X-Client-Id", cashfree.getPayoutsAppId())
-                .defaultHeader("X-Client-Secret", cashfree.getPayoutsSecretKey())
+        WebClient.Builder builder = webClientBuilder.baseUrl(baseUrl)
+                .defaultHeader("x-client-id", cashfree.getPayoutsAppId())
+                .defaultHeader("x-client-secret", cashfree.getPayoutsSecretKey())
+                .defaultHeader("x-api-version", "2024-01-01")
                 .defaultHeader("Content-Type", "application/json");
 
         if (signature != null) {
-            authBuilder.defaultHeader("X-Cf-Signature", signature);
+            builder.defaultHeader("x-cf-signature", signature);
         }
 
-        Map<String, Object> authResp = (Map<String, Object>) authBuilder.build()
-                .post().uri("/v1/authorize")
-                .retrieve().bodyToMono(Map.class).block();
-
-        log.info("Payouts authorize response: {}", authResp);
-
-        if (authResp == null || !"SUCCESS".equalsIgnoreCase(String.valueOf(authResp.get("status")))) {
-            throw new RuntimeException("Cashfree Payouts authorization failed: " + authResp);
-        }
-
-        String token = String.valueOf(((Map<?, ?>) authResp.get("data")).get("token"));
-
-        return webClientBuilder.baseUrl(baseUrl)
-                .defaultHeader("Authorization", "Bearer " + token)
-                .defaultHeader("x-api-version", "2024-01-01")
-                .defaultHeader("Content-Type", "application/json")
-                .build();
+        return builder.build();
     }
 
     private String generateCfSignature(String clientId, long timestamp) {
