@@ -12,5 +12,6 @@ public enum NotificationType {
     RIDE_STARTED,
     CHAT_MESSAGE,
     PAYMENT_SUCCESS,
-    PAYMENT_RECEIVED
+    PAYMENT_RECEIVED,
+    PAYMENT_REMINDER
 }

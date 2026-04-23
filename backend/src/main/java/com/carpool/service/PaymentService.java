@@ -201,6 +201,43 @@ public class PaymentService {
         }).toList();
     }
 
+    // ─── Payment reminder ────────────────────────────────────────────────────────
+
+    @Transactional
+    public void remindPendingPayments(String driverEmail, String rideId) {
+        User driver = userRepository.findById(driverEmail)
+                .orElseThrow(() -> new ResourceNotFoundException("User not found"));
+
+        Ride ride = rideRepository.findById(rideId)
+                .orElseThrow(() -> new ResourceNotFoundException("Ride not found"));
+
+        if (!ride.getDriver().getId().equals(driver.getId())) {
+            throw new BadRequestException("Only the driver can send payment reminders");
+        }
+
+        List<RideRequest> confirmed = rideRequestRepository.findByRideId(rideId).stream()
+                .filter(r -> r.getStatus() == RequestStatus.CONFIRMED)
+                .toList();
+
+        Set<String> paidRiderIds = paymentRepository.findByRideId(rideId).stream()
+                .filter(p -> p.getStatus() == PaymentStatus.SUCCESS)
+                .map(p -> p.getRider().getId())
+                .collect(java.util.stream.Collectors.toSet());
+
+        String route = ride.getOrigin() + " → " + ride.getDestination();
+        confirmed.stream()
+                .filter(r -> !paidRiderIds.contains(r.getRider().getId()))
+                .forEach(r -> notificationService.send(
+                        r.getRider().getId(),
+                        NotificationType.PAYMENT_REMINDER,
+                        "Payment Reminder",
+                        "Please complete your payment of ₹" + ride.getPrice() + " for the ride " + route,
+                        Map.of("rideId", rideId)
+                ));
+
+        log.info("Payment reminders sent for rideId={} by driver={}", rideId, driverEmail);
+    }
+
     // ─── Wallet ─────────────────────────────────────────────────────────────────
 
     public WalletResponse getWallet(String userEmail) {

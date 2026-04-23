@@ -16,4 +16,7 @@ export const paymentsApi = {
 
   getRidePaymentStatuses: (rideId: string) =>
     apiClient.get<Payment[]>(`/payments/ride/${rideId}/all`).then((r) => r.data),
+
+  remindPendingPayments: (rideId: string) =>
+    apiClient.post(`/payments/ride/${rideId}/remind`),
 }

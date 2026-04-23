@@ -51,6 +51,16 @@ public class PaymentController {
         return ResponseEntity.ok(paymentService.getRidePaymentStatuses(user.getUsername(), rideId));
     }
 
+    @PostMapping("/ride/{rideId}/remind")
+    @SecurityRequirement(name = "bearerAuth")
+    @Operation(summary = "Send payment reminder notifications to unpaid riders (driver only)")
+    public ResponseEntity<Void> remindPendingPayments(
+            @AuthenticationPrincipal UserDetails user,
+            @PathVariable String rideId) {
+        paymentService.remindPendingPayments(user.getUsername(), rideId);
+        return ResponseEntity.ok().build();
+    }
+
     @GetMapping("/wallet")
     @SecurityRequirement(name = "bearerAuth")
     @Operation(summary = "Get driver wallet balance and recent credits")

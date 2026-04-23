@@ -9,7 +9,7 @@ import { groupsApi } from '../../src/api/groups'
 import { ridesApi } from '../../src/api/rides'
 import { paymentsApi } from '../../src/api/payments'
 import { useAuthStore } from '../../src/store/authStore'
-import type { Group, Ride, Membership } from '../../src/types'
+import type { Group, Ride, Membership, Payment } from '../../src/types'
 
 const NEWLY_APPROVED_KEY = 'dashboard_newly_approved_groups'
 const TRACKED_PENDING_KEY = 'dashboard_tracked_pending_groups'
@@ -49,6 +49,8 @@ export default function DashboardScreen() {
   const [loading, setLoading] = useState(true)
   const [currentRidePaymentStatus, setCurrentRidePaymentStatus] = useState<string | null>(null)
   const [pendingPayRide, setPendingPayRide] = useState<Ride | null>(null)
+  const [driverPendingPayments, setDriverPendingPayments] = useState<{ ride: Ride; unpaidRiders: Payment[] }[]>([])
+  const [reminding, setReminding] = useState<string | null>(null)
 
   const load = useCallback(async () => {
     try {
@@ -128,6 +130,20 @@ export default function DashboardScreen() {
           .filter(r => r.status === 'OPEN' || r.status === 'FULL')
           .sort((a, b) => new Date(a.departureTime).getTime() - new Date(b.departureTime).getTime())
       )
+
+      // Driver: find completed rides with unpaid riders
+      if (user?.canDrive) {
+        const completedDriving = driving.filter(r => r.status === 'COMPLETED' && r.price != null)
+        const pendingResults: { ride: Ride; unpaidRiders: Payment[] }[] = []
+        for (const r of completedDriving) {
+          try {
+            const statuses = await paymentsApi.getRidePaymentStatuses(r.id)
+            const unpaid = statuses.filter(s => s.status !== 'SUCCESS' && s.status !== 'NOT_REQUIRED')
+            if (unpaid.length > 0) pendingResults.push({ ride: r, unpaidRiders: unpaid })
+          } catch {}
+        }
+        setDriverPendingPayments(pendingResults)
+      }
     } finally {
       setLoading(false)
     }
@@ -161,6 +177,18 @@ export default function DashboardScreen() {
 
   const handlePayNow = (rideId: string) => {
     router.push({ pathname: `/rides/${rideId}`, params: { pay: '1' } })
+  }
+
+  const handleRemind = async (rideId: string) => {
+    setReminding(rideId)
+    try {
+      await paymentsApi.remindPendingPayments(rideId)
+      Alert.alert('Reminders Sent', 'Unpaid riders have been notified to complete their payment.')
+    } catch {
+      Alert.alert('Error', 'Could not send reminders. Please try again.')
+    } finally {
+      setReminding(null)
+    }
   }
 
   const subtitle = loading ? 'Loading…'
@@ -339,6 +367,35 @@ export default function DashboardScreen() {
             </View>
           )}
 
+          {/* ── Driver: completed rides with pending payments ── */}
+          {driverPendingPayments.length > 0 && (
+            <View style={styles.section}>
+              <Text style={styles.sectionTitle}>💰 Pending Payments</Text>
+              {driverPendingPayments.map(({ ride, unpaidRiders }) => (
+                <View key={ride.id} style={[styles.card, { borderLeftWidth: 4, borderLeftColor: '#f59e0b' }]}>
+                  <View style={styles.cardRow}>
+                    <Text style={styles.cardRoute}>{ride.origin} → {ride.destination}</Text>
+                    <RideStatusBadge status={ride.status} />
+                  </View>
+                  <Text style={styles.cardTime}>{unpaidRiders.length} rider{unpaidRiders.length > 1 ? 's' : ''} yet to pay · ₹{ride.price?.toFixed(2)} each</Text>
+                  <Text style={[styles.cardGroup, { marginBottom: 10 }]}>
+                    {unpaidRiders.map(r => r.riderName).join(', ')}
+                  </Text>
+                  <TouchableOpacity
+                    style={[styles.remindBtn, reminding === ride.id && styles.remindBtnDisabled]}
+                    onPress={() => handleRemind(ride.id)}
+                    disabled={reminding === ride.id}
+                  >
+                    {reminding === ride.id
+                      ? <ActivityIndicator color="#fff" size="small" />
+                      : <Text style={styles.remindBtnText}>🔔 Remind Riders</Text>
+                    }
+                  </TouchableOpacity>
+                </View>
+              ))}
+            </View>
+          )}
+
           {/* ── Upcoming rides ── */}
           {upcomingRides.length > 0 && (
             <View style={styles.section}>
@@ -500,6 +557,11 @@ const styles = StyleSheet.create({
     paddingVertical: 8, alignItems: 'center',
   },
   startBtnText: { color: '#fff', fontWeight: '600', fontSize: 13 },
+  remindBtn: {
+    backgroundColor: '#f59e0b', borderRadius: 8, paddingVertical: 8, alignItems: 'center',
+  },
+  remindBtnDisabled: { opacity: 0.5 },
+  remindBtnText: { color: '#fff', fontWeight: '600', fontSize: 13 },
   emptyCard: {
     backgroundColor: '#fff', borderRadius: 16, padding: 32, alignItems: 'center',
     shadowColor: '#000', shadowOpacity: 0.05, shadowRadius: 6, shadowOffset: { width: 0, height: 2 }, elevation: 2,
