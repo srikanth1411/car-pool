@@ -48,6 +48,7 @@ export default function DashboardScreen() {
   const [newlyApproved, setNewlyApproved] = useState<{ groupId: string; groupName: string }[]>([])
   const [loading, setLoading] = useState(true)
   const [currentRidePaymentStatus, setCurrentRidePaymentStatus] = useState<string | null>(null)
+  const [pendingPayRide, setPendingPayRide] = useState<Ride | null>(null)
 
   const load = useCallback(async () => {
     try {
@@ -108,6 +109,19 @@ export default function DashboardScreen() {
       } else {
         setCurrentRidePaymentStatus(null)
       }
+
+      // Find a COMPLETED ride where rider still owes payment
+      const completedRiderRides = allMyRides.filter(
+        r => r.status === 'COMPLETED' && r.driver.id !== user?.id && r.price != null
+      )
+      let foundUnpaid: Ride | null = null
+      for (const r of completedRiderRides) {
+        try {
+          const ps = await paymentsApi.getPaymentStatus(r.id)
+          if (ps.status !== 'SUCCESS') { foundUnpaid = r; break }
+        } catch {}
+      }
+      setPendingPayRide(foundUnpaid)
 
       setUpcomingRides(
         allMyRides
@@ -303,6 +317,25 @@ export default function DashboardScreen() {
                   ) : null}
                 </View>
               </TouchableOpacity>
+            </View>
+          )}
+
+          {/* ── Pending payment for completed ride ── */}
+          {pendingPayRide && (
+            <View style={styles.section}>
+              <View style={[styles.card, { borderLeftWidth: 4, borderLeftColor: '#7c3aed' }]}>
+                <View style={styles.cardRow}>
+                  <Text style={[styles.cardRoute, { fontSize: 13 }]}>{pendingPayRide.origin} → {pendingPayRide.destination}</Text>
+                  <RideStatusBadge status={pendingPayRide.status} />
+                </View>
+                <Text style={[styles.cardTime, { marginBottom: 10 }]}>Payment due for completed ride</Text>
+                <TouchableOpacity
+                  style={styles.payBtn}
+                  onPress={() => router.push({ pathname: `/rides/${pendingPayRide.id}`, params: { pay: '1' } })}
+                >
+                  <Text style={styles.payBtnText}>💳 Pay ₹{pendingPayRide.price!.toFixed(2)}</Text>
+                </TouchableOpacity>
+              </View>
             </View>
           )}
 

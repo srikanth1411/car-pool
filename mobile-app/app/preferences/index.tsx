@@ -1,8 +1,9 @@
 import { useEffect, useState } from 'react'
 import {
-  View, Text, ScrollView, TouchableOpacity, StyleSheet,
+  View, Text, TouchableOpacity, StyleSheet,
   ActivityIndicator, Alert, TextInput,
 } from 'react-native'
+import { KeyboardAwareScrollView } from 'react-native-keyboard-aware-scroll-view'
 import { useRouter } from 'expo-router'
 import { preferencesApi } from '../../src/api/preferences'
 import { extractError } from '../../src/api/client'
@@ -147,11 +148,11 @@ export default function PreferencesScreen() {
           </TouchableOpacity>
         </View>
       ) : (
-        <ScrollView contentContainerStyle={s.list}>
+        <KeyboardAwareScrollView contentContainerStyle={s.list} keyboardShouldPersistTaps="handled" enableOnAndroid>
           {preferences.map(pref => (
             <PreferenceCard key={pref.id} pref={pref} onDelete={handleDelete} onPosted={handlePosted} />
           ))}
-        </ScrollView>
+        </KeyboardAwareScrollView>
       )}
     </View>
   )

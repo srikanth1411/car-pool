@@ -30,7 +30,7 @@ server:
 
 upload:
   dir: uploads
-  base-url: http://192.168.31.214:8080
+  base-url: https://carroll-control-lenses-despite.trycloudflare.com
 
 cashfree:
   app-id: ${CASHFREE_APP_ID}

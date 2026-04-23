@@ -2,9 +2,9 @@ import { useCallback, useEffect, useState } from 'react'
 import { useFocusEffect } from 'expo-router'
 import {
   View, Text, ScrollView, TouchableOpacity, StyleSheet,
-
   ActivityIndicator, Modal, TextInput, Alert, Switch, Image,
 } from 'react-native'
+import { KeyboardAwareScrollView } from 'react-native-keyboard-aware-scroll-view'
 import { useRouter } from 'expo-router'
 import { groupsApi } from '../../src/api/groups'
 import { useAuthStore } from '../../src/store/authStore'
@@ -77,7 +77,7 @@ function CreateGroupModal({ onClose, onCreated }: { onClose: () => void; onCreat
     <Modal visible animationType="slide" transparent onRequestClose={onClose}>
       <View style={{ flex: 1 }}>
         <View style={modal.overlay}>
-          <ScrollView style={modal.sheet} contentContainerStyle={{ paddingBottom: 40 }} keyboardShouldPersistTaps="handled">
+          <KeyboardAwareScrollView style={modal.sheet} contentContainerStyle={{ paddingBottom: 40 }} keyboardShouldPersistTaps="handled" enableOnAndroid>
             <Text style={modal.title}>New Group</Text>
 
             <Text style={modal.label}>Group Name</Text>
@@ -157,7 +157,7 @@ function CreateGroupModal({ onClose, onCreated }: { onClose: () => void; onCreat
                 {loading ? <ActivityIndicator color="#fff" /> : <Text style={modal.submitText}>Create</Text>}
               </TouchableOpacity>
             </View>
-          </ScrollView>
+          </KeyboardAwareScrollView>
         </View>
       </View>
     </Modal>
@@ -221,7 +221,7 @@ function JoinGroupModal({ onClose, onJoined }: { onClose: () => void; onJoined: 
     <Modal visible animationType="slide" transparent onRequestClose={onClose}>
       <View style={{ flex: 1 }}>
         <View style={modal.overlay}>
-          <ScrollView style={modal.sheet} keyboardShouldPersistTaps="handled" contentContainerStyle={{ paddingBottom: 32 }}>
+          <KeyboardAwareScrollView style={modal.sheet} keyboardShouldPersistTaps="handled" contentContainerStyle={{ paddingBottom: 32 }} enableOnAndroid>
               {step === 'code' ? (
                 <>
                   <Text style={modal.title}>Join Group</Text>
@@ -271,7 +271,7 @@ function JoinGroupModal({ onClose, onJoined }: { onClose: () => void; onJoined: 
                   </View>
                 </>
               )}
-          </ScrollView>
+          </KeyboardAwareScrollView>
         </View>
       </View>
     </Modal>

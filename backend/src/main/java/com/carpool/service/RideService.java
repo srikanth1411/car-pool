@@ -17,8 +17,10 @@ import com.carpool.model.GroupLocation;
 import com.carpool.model.Ride;
 import com.carpool.model.RideRequest;
 import com.carpool.model.User;
+import com.carpool.enums.PaymentStatus;
 import com.carpool.repository.GroupLocationRepository;
 import com.carpool.repository.GroupMembershipRepository;
+import com.carpool.repository.PaymentRepository;
 import com.carpool.repository.RideMessageRepository;
 import com.carpool.repository.RideRepository;
 import com.carpool.repository.RideRequestRepository;
@@ -40,6 +42,7 @@ public class RideService {
     private final RideMessageRepository rideMessageRepository;
     private final GroupMembershipRepository membershipRepository;
     private final GroupLocationRepository locationRepository;
+    private final PaymentRepository paymentRepository;
     private final GroupService groupService;
     private final UserService userService;
     private final NotificationService notificationService;
@@ -241,6 +244,15 @@ public class RideService {
         }
         if (rideRequestRepository.existsByRiderIdAndRideId(riderId, rideId)) {
             throw new ConflictException("Already requested this ride");
+        }
+
+        // Block booking if rider has an unpaid balance on any completed ride
+        boolean hasUnpaidCompletedRide = paymentRepository.findByRiderIdOrderByCreatedAtDesc(riderId)
+                .stream()
+                .anyMatch(p -> p.getStatus() == PaymentStatus.PENDING
+                        && p.getRide().getStatus() == RideStatus.COMPLETED);
+        if (hasUnpaidCompletedRide) {
+            throw new BadRequestException("Please complete payment for your previous ride before booking a new one.");
         }
 
         boolean hasRideOnSameDay = rideRequestRepository.existsActiveBookingOnSameDate(
