@@ -199,15 +199,17 @@ public class PayoutService {
         body.put("beneficiary_contact_details", contactDetails);
 
         try {
-            restTemplate.exchange(
+            @SuppressWarnings("rawtypes")
+            ResponseEntity<Map> resp = restTemplate.exchange(
                     getPayoutsBaseUrl() + "/payout/v2/beneficiary",
                     HttpMethod.POST,
                     new HttpEntity<>(body, buildPayoutHeaders()),
                     Map.class
             );
+            log.info("Beneficiary registration response: status={} body={}", resp.getStatusCode(), resp.getBody());
         } catch (Exception e) {
             // Beneficiary may already exist — that's fine
-            log.warn("Beneficiary registration: {}", e.getMessage());
+            log.warn("Beneficiary registration failed: {}", e.getMessage());
         }
 
         account.setCfBeneficiaryId(beneId);
@@ -229,16 +231,20 @@ public class PayoutService {
         body.put("transfer_mode", "banktransfer");
         body.put("transfer_remarks", "Carpool wallet settlement");
 
-        Map<?, ?> response = restTemplate.exchange(
+        @SuppressWarnings("rawtypes")
+        ResponseEntity<Map> transferResp = restTemplate.exchange(
                 getPayoutsBaseUrl() + "/payout/v2/transfers",
                 HttpMethod.POST,
                 new HttpEntity<>(body, buildPayoutHeaders()),
                 Map.class
-        ).getBody();
+        );
+        Map<?, ?> response = transferResp.getBody();
+        log.info("Cashfree transfer response: status={} body={}", transferResp.getStatusCode(), response);
 
         if (response == null) throw new RuntimeException("Empty response from Cashfree Payouts");
 
         Object status = response.get("transfer_status");
+        log.info("transfer_status={}", status);
         if ("FAILED".equalsIgnoreCase(String.valueOf(status))) {
             Object msg = response.get("transfer_message");
             throw new RuntimeException("Cashfree Payouts error: " + msg);

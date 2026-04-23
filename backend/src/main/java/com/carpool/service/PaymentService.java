@@ -55,7 +55,7 @@ public class PaymentService {
         Ride ride = rideRepository.findById(req.getRideId())
                 .orElseThrow(() -> new ResourceNotFoundException("Ride not found"));
 
-        if (ride.getStatus() != RideStatus.DEPARTED) {
+        if (ride.getStatus() != RideStatus.DEPARTED && ride.getStatus() != RideStatus.COMPLETED) {
             throw new BadRequestException("Payment is only available after the driver starts the ride");
         }
 
