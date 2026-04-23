@@ -14,4 +14,8 @@ public class CashfreeProperties {
     private String secretKey;
     private String baseUrl = "https://sandbox.cashfree.com/pg";
     private String apiVersion = "2023-08-01";
+
+    // Cashfree Payouts uses separate credentials (enable Payouts product in dashboard)
+    private String payoutsAppId;
+    private String payoutsSecretKey;
 }

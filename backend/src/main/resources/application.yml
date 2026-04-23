@@ -37,6 +37,9 @@ cashfree:
   secret-key: ${CASHFREE_SECRET_KEY}
   base-url: ${CASHFREE_BASE_URL:https://sandbox.cashfree.com/pg}
   api-version: "2023-08-01"
+  # Payouts product uses separate credentials — set these after enabling Payouts in Cashfree dashboard
+  payouts-app-id: ${CASHFREE_PAYOUTS_APP_ID:}
+  payouts-secret-key: ${CASHFREE_PAYOUTS_SECRET_KEY:}
 
 jwt:
   secret: ${JWT_SECRET:dev-secret-key-at-least-256-bits-long-change-in-production-now}

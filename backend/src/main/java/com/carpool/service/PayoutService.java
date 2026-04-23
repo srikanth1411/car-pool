@@ -90,11 +90,7 @@ public class PayoutService {
 
         BigDecimal amount = wallet.getBalance();
 
-        // Authenticate with Cashfree Payouts and register beneficiary
-        String token = getPayoutsToken();
-        String beneficiaryId = ensureBeneficiary(account, driver, token);
-
-        // Create the settlement record
+        // Create the settlement record first so it's always tracked
         WalletSettlement settlement = WalletSettlement.builder()
                 .id(UUID.randomUUID().toString())
                 .driver(driver)
@@ -104,8 +100,21 @@ public class PayoutService {
                 .build();
         settlementRepository.save(settlement);
 
-        // Flush so that @CreationTimestamp is written before the update below
+        // Flush so @CreationTimestamp is populated before the update below
         settlementRepository.flush();
+
+        if (!payoutsConfigured()) {
+            // Payouts not configured yet — leave as PENDING and notify
+            settlement.setFailureReason("Cashfree Payouts not configured. Set CASHFREE_PAYOUTS_APP_ID and CASHFREE_PAYOUTS_SECRET_KEY.");
+            settlement.setStatus("PENDING");
+            settlementRepository.save(settlement);
+            log.warn("Payouts not configured; settlement {} left as PENDING", settlement.getId());
+            return toSettlementResponse(account, settlement);
+        }
+
+        // Authenticate with Cashfree Payouts and register beneficiary
+        String token = getPayoutsToken();
+        String beneficiaryId = ensureBeneficiary(account, driver, token);
 
         // Call Cashfree Payouts transfer API
         try {
@@ -150,11 +159,23 @@ public class PayoutService {
                 : "https://payout-api.cashfree.com";
     }
 
+    private boolean payoutsConfigured() {
+        String id = cashfree.getPayoutsAppId();
+        String key = cashfree.getPayoutsSecretKey();
+        return id != null && !id.isBlank() && key != null && !key.isBlank();
+    }
+
     private String getPayoutsToken() {
+        if (!payoutsConfigured()) {
+            throw new RuntimeException(
+                "Cashfree Payouts credentials not configured. " +
+                "Enable the Payouts product in your Cashfree dashboard, then set " +
+                "CASHFREE_PAYOUTS_APP_ID and CASHFREE_PAYOUTS_SECRET_KEY environment variables.");
+        }
         HttpHeaders h = new HttpHeaders();
         h.setContentType(MediaType.APPLICATION_JSON);
-        h.set("X-Client-Id", cashfree.getAppId());
-        h.set("X-Client-Secret", cashfree.getSecretKey());
+        h.set("X-Client-Id", cashfree.getPayoutsAppId());
+        h.set("X-Client-Secret", cashfree.getPayoutsSecretKey());
 
         Map<?, ?> response = restTemplate.exchange(
                 getPayoutsBaseUrl() + "/payout/v1/authorize",
