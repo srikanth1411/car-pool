@@ -9,12 +9,19 @@ import com.carpool.model.*;
 import com.carpool.repository.*;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.core.io.ClassPathResource;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.reactive.function.client.WebClient;
 import org.springframework.web.reactive.function.client.WebClientResponseException;
 
+import javax.crypto.Cipher;
 import java.math.BigDecimal;
+import java.nio.charset.StandardCharsets;
+import java.security.KeyFactory;
+import java.security.PublicKey;
+import java.security.spec.X509EncodedKeySpec;
+import java.util.Base64;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -287,14 +294,19 @@ public class PayoutService {
                 ? "https://sandbox.cashfree.com/payout"
                 : "https://api.cashfree.com/payout";
 
-        // Step 1: get Bearer token via v1/authorize (v2/authorize not supported on sandbox)
-        WebClient authClient = webClientBuilder.baseUrl(baseUrl)
+        long timestamp = System.currentTimeMillis() / 1000;
+        String signature = generateCfSignature(cashfree.getPayoutsAppId(), timestamp);
+
+        WebClient.Builder authBuilder = webClientBuilder.baseUrl(baseUrl)
                 .defaultHeader("X-Client-Id", cashfree.getPayoutsAppId())
                 .defaultHeader("X-Client-Secret", cashfree.getPayoutsSecretKey())
-                .defaultHeader("Content-Type", "application/json")
-                .build();
+                .defaultHeader("Content-Type", "application/json");
 
-        Map<String, Object> authResp = (Map<String, Object>) authClient
+        if (signature != null) {
+            authBuilder.defaultHeader("X-Cf-Signature", signature);
+        }
+
+        Map<String, Object> authResp = (Map<String, Object>) authBuilder.build()
                 .post().uri("/v1/authorize")
                 .retrieve().bodyToMono(Map.class).block();
 
@@ -306,12 +318,34 @@ public class PayoutService {
 
         String token = String.valueOf(((Map<?, ?>) authResp.get("data")).get("token"));
 
-        // Step 2: build client with Bearer token for subsequent calls
         return webClientBuilder.baseUrl(baseUrl)
                 .defaultHeader("Authorization", "Bearer " + token)
                 .defaultHeader("x-api-version", "2024-01-01")
                 .defaultHeader("Content-Type", "application/json")
                 .build();
+    }
+
+    private String generateCfSignature(String clientId, long timestamp) {
+        try {
+            ClassPathResource resource = new ClassPathResource("cashfree_payouts_public.pem");
+            String pem = new String(resource.getInputStream().readAllBytes(), StandardCharsets.UTF_8)
+                    .replace("-----BEGIN PUBLIC KEY-----", "")
+                    .replace("-----END PUBLIC KEY-----", "")
+                    .replaceAll("\\s", "");
+
+            byte[] keyBytes = Base64.getDecoder().decode(pem);
+            PublicKey publicKey = KeyFactory.getInstance("RSA")
+                    .generatePublic(new X509EncodedKeySpec(keyBytes));
+
+            String data = clientId + "." + timestamp;
+            Cipher cipher = Cipher.getInstance("RSA/ECB/OAEPWithSHA-1AndMGF1Padding");
+            cipher.init(Cipher.ENCRYPT_MODE, publicKey);
+            byte[] encrypted = cipher.doFinal(data.getBytes(StandardCharsets.UTF_8));
+            return Base64.getEncoder().encodeToString(encrypted);
+        } catch (Exception e) {
+            log.warn("Could not generate Cf-Signature: {}", e.getMessage());
+            return null;
+        }
     }
 
     private boolean payoutsConfigured() {
