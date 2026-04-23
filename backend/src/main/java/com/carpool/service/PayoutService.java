@@ -37,7 +37,7 @@ public class PayoutService {
 
     @Transactional
     public SettlementResponse saveBankAccount(String driverEmail, SaveBankAccountRequest req) {
-        User driver = userRepository.findByEmail(driverEmail)
+        User driver = userRepository.findById(driverEmail)
                 .orElseThrow(() -> new ResourceNotFoundException("User not found"));
 
         DriverBankAccount account = bankAccountRepository.findByDriverId(driver.getId())
@@ -60,7 +60,7 @@ public class PayoutService {
     // ─── Get saved bank account ─────────────────────────────────────────────────
 
     public SettlementResponse getBankAccount(String driverEmail) {
-        User driver = userRepository.findByEmail(driverEmail)
+        User driver = userRepository.findById(driverEmail)
                 .orElseThrow(() -> new ResourceNotFoundException("User not found"));
 
         DriverBankAccount account = bankAccountRepository.findByDriverId(driver.getId()).orElse(null);
@@ -71,7 +71,7 @@ public class PayoutService {
 
     @Transactional
     public SettlementResponse settleNow(String driverEmail) {
-        User driver = userRepository.findByEmail(driverEmail)
+        User driver = userRepository.findById(driverEmail)
                 .orElseThrow(() -> new ResourceNotFoundException("User not found"));
 
         Wallet wallet = walletRepository.findByUserId(driver.getId())
@@ -209,7 +209,7 @@ public class PayoutService {
     // ─── Settlement history ─────────────────────────────────────────────────────
 
     public List<SettlementResponse> getSettlementHistory(String driverEmail) {
-        User driver = userRepository.findByEmail(driverEmail)
+        User driver = userRepository.findById(driverEmail)
                 .orElseThrow(() -> new ResourceNotFoundException("User not found"));
 
         DriverBankAccount account = bankAccountRepository.findByDriverId(driver.getId()).orElse(null);

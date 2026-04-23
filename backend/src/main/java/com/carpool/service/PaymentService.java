@@ -49,7 +49,7 @@ public class PaymentService {
 
     @Transactional
     public PaymentOrderResponse createOrder(String userEmail, CreatePaymentOrderRequest req) {
-        User rider = userRepository.findByEmail(userEmail)
+        User rider = userRepository.findById(userEmail)
                 .orElseThrow(() -> new ResourceNotFoundException("User not found"));
 
         Ride ride = rideRepository.findById(req.getRideId())
@@ -124,7 +124,7 @@ public class PaymentService {
     // ─── Payment status for a ride (rider's own) ───────────────────────────────
 
     public PaymentStatusResponse getPaymentStatus(String userEmail, String rideId) {
-        User rider = userRepository.findByEmail(userEmail)
+        User rider = userRepository.findById(userEmail)
                 .orElseThrow(() -> new ResourceNotFoundException("User not found"));
 
         Ride ride = rideRepository.findById(rideId)
@@ -241,7 +241,7 @@ public class PaymentService {
     // ─── Wallet ─────────────────────────────────────────────────────────────────
 
     public WalletResponse getWallet(String userEmail) {
-        User user = userRepository.findByEmail(userEmail)
+        User user = userRepository.findById(userEmail)
                 .orElseThrow(() -> new ResourceNotFoundException("User not found"));
 
         Wallet wallet = getOrCreateWallet(user);
@@ -331,13 +331,13 @@ public class PaymentService {
 
     @Transactional
     public PaymentStatusResponse verifyAndCreditPayment(String userEmail, String paymentId) {
-        userRepository.findByEmail(userEmail)
+        userRepository.findById(userEmail)
                 .orElseThrow(() -> new ResourceNotFoundException("User not found"));
 
         Payment payment = paymentRepository.findById(paymentId)
                 .orElseThrow(() -> new ResourceNotFoundException("Payment not found"));
 
-        if (!payment.getRider().getEmail().equals(userEmail)) {
+        if (!payment.getRider().getId().equals(userEmail)) {
             throw new BadRequestException("Not authorized to verify this payment");
         }
 
