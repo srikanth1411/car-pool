@@ -90,8 +90,9 @@ public class PayoutService {
 
         BigDecimal amount = wallet.getBalance();
 
-        // Register beneficiary with Cashfree if not already done
-        String beneficiaryId = ensureBeneficiary(account, driver);
+        // Authenticate with Cashfree Payouts and register beneficiary
+        String token = getPayoutsToken();
+        String beneficiaryId = ensureBeneficiary(account, driver, token);
 
         // Create the settlement record
         WalletSettlement settlement = WalletSettlement.builder()
@@ -103,9 +104,12 @@ public class PayoutService {
                 .build();
         settlementRepository.save(settlement);
 
+        // Flush so that @CreationTimestamp is written before the update below
+        settlementRepository.flush();
+
         // Call Cashfree Payouts transfer API
         try {
-            String transferId = callCashfreeTransfer(beneficiaryId, amount, settlement.getId());
+            String transferId = callCashfreeTransfer(beneficiaryId, amount, settlement.getId(), token);
             settlement.setCfTransferId(transferId);
             settlement.setStatus("SUCCESS");
 
@@ -140,13 +144,45 @@ public class PayoutService {
 
     // ─── Helpers ────────────────────────────────────────────────────────────────
 
-    private String ensureBeneficiary(DriverBankAccount account, User driver) {
+    private String getPayoutsBaseUrl() {
+        return cashfree.getBaseUrl().contains("sandbox")
+                ? "https://payout-gamma.cashfree.com"
+                : "https://payout-api.cashfree.com";
+    }
+
+    private String getPayoutsToken() {
+        HttpHeaders h = new HttpHeaders();
+        h.setContentType(MediaType.APPLICATION_JSON);
+        h.set("X-Client-Id", cashfree.getAppId());
+        h.set("X-Client-Secret", cashfree.getSecretKey());
+
+        Map<?, ?> response = restTemplate.exchange(
+                getPayoutsBaseUrl() + "/payout/v1/authorize",
+                HttpMethod.POST,
+                new HttpEntity<>(null, h),
+                Map.class
+        ).getBody();
+
+        if (response == null) throw new RuntimeException("No response from Cashfree Payouts auth");
+        if (!"SUCCESS".equalsIgnoreCase(String.valueOf(response.get("status")))) {
+            throw new RuntimeException("Cashfree Payouts auth failed: " + response.get("message"));
+        }
+        @SuppressWarnings("unchecked")
+        Map<String, Object> data = (Map<String, Object>) response.get("data");
+        return String.valueOf(data.get("token"));
+    }
+
+    private HttpHeaders buildPayoutHeaders(String token) {
+        HttpHeaders h = new HttpHeaders();
+        h.setContentType(MediaType.APPLICATION_JSON);
+        h.setBearerAuth(token);
+        return h;
+    }
+
+    private String ensureBeneficiary(DriverBankAccount account, User driver, String token) {
         if (account.getCfBeneficiaryId() != null) return account.getCfBeneficiaryId();
 
         String beneId = "bene_" + driver.getId().replace("-", "").substring(0, 12);
-        String payoutsBaseUrl = cashfree.getBaseUrl().contains("sandbox")
-                ? "https://payout-gamma.cashfree.com"
-                : "https://payout-api.cashfree.com";
 
         Map<String, Object> body = new LinkedHashMap<>();
         body.put("beneId", beneId);
@@ -157,12 +193,11 @@ public class PayoutService {
         body.put("ifsc", account.getIfscCode());
         body.put("address1", "India");
 
-        HttpHeaders headers = buildPayoutHeaders();
         try {
             restTemplate.exchange(
-                    payoutsBaseUrl + "/payout/v1/addBeneficiary",
+                    getPayoutsBaseUrl() + "/payout/v1/addBeneficiary",
                     HttpMethod.POST,
-                    new HttpEntity<>(body, headers),
+                    new HttpEntity<>(body, buildPayoutHeaders(token)),
                     Map.class
             );
         } catch (Exception e) {
@@ -175,11 +210,7 @@ public class PayoutService {
         return beneId;
     }
 
-    private String callCashfreeTransfer(String beneficiaryId, BigDecimal amount, String settlementId) {
-        String payoutsBaseUrl = cashfree.getBaseUrl().contains("sandbox")
-                ? "https://payout-gamma.cashfree.com"
-                : "https://payout-api.cashfree.com";
-
+    private String callCashfreeTransfer(String beneficiaryId, BigDecimal amount, String settlementId, String token) {
         String transferId = "settle_" + settlementId.replace("-", "").substring(0, 16);
 
         Map<String, Object> body = new LinkedHashMap<>();
@@ -189,11 +220,10 @@ public class PayoutService {
         body.put("transferMode", "NEFT");
         body.put("remarks", "Carpool wallet settlement");
 
-        HttpHeaders headers = buildPayoutHeaders();
         Map<?, ?> response = restTemplate.exchange(
-                payoutsBaseUrl + "/payout/v1/requestTransfer",
+                getPayoutsBaseUrl() + "/payout/v1/requestTransfer",
                 HttpMethod.POST,
-                new HttpEntity<>(body, headers),
+                new HttpEntity<>(body, buildPayoutHeaders(token)),
                 Map.class
         ).getBody();
 
@@ -205,15 +235,6 @@ public class PayoutService {
             throw new RuntimeException("Cashfree Payouts error: " + msg);
         }
         return transferId;
-    }
-
-    private HttpHeaders buildPayoutHeaders() {
-        // Cashfree Payouts uses the same app-id / secret-key as PG for sandbox
-        HttpHeaders h = new HttpHeaders();
-        h.setContentType(MediaType.APPLICATION_JSON);
-        h.set("X-Client-Id", cashfree.getAppId());
-        h.set("X-Client-Secret", cashfree.getSecretKey());
-        return h;
     }
 
     private SettlementResponse toSettlementResponse(DriverBankAccount account, WalletSettlement settlement) {
