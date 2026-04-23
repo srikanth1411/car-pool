@@ -93,14 +93,31 @@ public class PayoutReconciliationJob {
         log.warn("Reconciliation FAILED: requestId={} reason={}", pr.getRequestId(), reason);
     }
 
+    @SuppressWarnings("unchecked")
     private WebClient buildPayoutsClient() {
         String baseUrl = cashfree.getBaseUrl().contains("sandbox")
                 ? "https://sandbox.cashfree.com/payout"
                 : "https://api.cashfree.com/payout";
 
-        return webClientBuilder.baseUrl(baseUrl)
+        WebClient authClient = webClientBuilder.baseUrl(baseUrl)
                 .defaultHeader("x-client-id", cashfree.getPayoutsAppId())
                 .defaultHeader("x-client-secret", cashfree.getPayoutsSecretKey())
+                .defaultHeader("x-api-version", "2024-01-01")
+                .build();
+
+        Map<String, Object> authResp = (Map<String, Object>) authClient
+                .post().uri("/v2/authorize")
+                .retrieve().bodyToMono(Map.class).block();
+
+        if (authResp == null || !"SUCCESS".equalsIgnoreCase(String.valueOf(authResp.get("status")))) {
+            log.warn("Reconciliation: Payouts authorization failed: {}", authResp);
+            throw new RuntimeException("Payouts auth failed");
+        }
+
+        String token = String.valueOf(authResp.get("token"));
+
+        return webClientBuilder.baseUrl(baseUrl)
+                .defaultHeader("Authorization", "Bearer " + token)
                 .defaultHeader("x-api-version", "2024-01-01")
                 .build();
     }
