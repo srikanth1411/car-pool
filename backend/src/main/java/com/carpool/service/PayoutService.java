@@ -1,7 +1,6 @@
 package com.carpool.service;
 
 import com.carpool.config.CashfreeProperties;
-import com.carpool.dto.PayoutEventMessage;
 import com.carpool.dto.request.SaveBankAccountRequest;
 import com.carpool.dto.response.SettlementResponse;
 import com.carpool.exception.BadRequestException;
@@ -12,8 +11,11 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.reactive.function.client.WebClient;
+import org.springframework.web.reactive.function.client.WebClientResponseException;
 
 import java.math.BigDecimal;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -28,8 +30,8 @@ public class PayoutService {
     private final DriverBankAccountRepository bankAccountRepository;
     private final WalletSettlementRepository settlementRepository;
     private final PayoutRequestRepository payoutRequestRepository;
-    private final PayoutKafkaProducer kafkaProducer;
     private final CashfreeProperties cashfree;
+    private final WebClient.Builder webClientBuilder;
 
     // ─── Save / update bank account ────────────────────────────────────────────
 
@@ -65,7 +67,7 @@ public class PayoutService {
         return toSettlementResponse(account, null);
     }
 
-    // ─── Settle Now: publish Kafka event for async payout ─────────────────────
+    // ─── Settle Now ─────────────────────────────────────────────────────────────
 
     @Transactional
     public SettlementResponse settleNow(String driverEmail) {
@@ -88,17 +90,17 @@ public class PayoutService {
 
         BigDecimal amount = wallet.getBalance();
 
-        // Ensure beneficiary ID is set (used as idempotency key per driver)
+        // Ensure beneficiary ID
         if (account.getCfBeneficiaryId() == null) {
             String beneId = "bene_" + driver.getId().replace("-", "").substring(0, 12);
             account.setCfBeneficiaryId(beneId);
             bankAccountRepository.save(account);
         }
 
-        // Generate unique idempotency key for this settlement attempt
+        // Idempotency key for this transfer
         String requestId = "pay_" + UUID.randomUUID().toString().replace("-", "").substring(0, 20);
 
-        // Create wallet settlement record (balance deducted after webhook confirms SUCCESS)
+        // Create settlement record
         WalletSettlement settlement = WalletSettlement.builder()
                 .id(UUID.randomUUID().toString())
                 .driver(driver)
@@ -109,7 +111,7 @@ public class PayoutService {
         settlementRepository.save(settlement);
         settlementRepository.flush();
 
-        // Create payout request record
+        // Track in payout_requests for reconciliation
         PayoutRequest payoutRequest = PayoutRequest.builder()
                 .id(UUID.randomUUID().toString())
                 .walletSettlement(settlement)
@@ -121,24 +123,42 @@ public class PayoutService {
                 .build();
         payoutRequestRepository.save(payoutRequest);
 
-        // Deduct wallet balance optimistically (reversed on FAILED webhook)
-        wallet.setBalance(BigDecimal.ZERO);
-        walletRepository.save(wallet);
+        try {
+            WebClient client = buildPayoutsClient();
 
-        // Publish to Kafka — consumer will call Cashfree v2
-        PayoutEventMessage event = PayoutEventMessage.builder()
-                .eventId(payoutRequest.getId())
-                .requestId(requestId)
-                .walletSettlementId(settlement.getId())
-                .driverId(driver.getId())
-                .driverEmail(driver.getEmail())
-                .amount(amount)
-                .beneficiaryId(account.getCfBeneficiaryId())
-                .retryCount(0)
-                .build();
-        kafkaProducer.publishPayoutRequest(event);
+            // Register beneficiary in Cashfree v2
+            ensureBeneficiary(client, account, driver.getEmail());
 
-        log.info("Payout event published: requestId={} amount={} driver={}", requestId, amount, driverEmail);
+            // Initiate transfer
+            initiateTransfer(client, requestId, amount, account.getCfBeneficiaryId());
+
+            // Mark PROCESSING — webhook/reconciliation will confirm final state
+            settlement.setStatus("PROCESSING");
+            settlement.setCfTransferId(requestId);
+            settlementRepository.save(settlement);
+
+            payoutRequest.setStatus("PROCESSING");
+            payoutRequest.setCfTransferId(requestId);
+            payoutRequestRepository.save(payoutRequest);
+
+            // Deduct wallet balance optimistically
+            wallet.setBalance(BigDecimal.ZERO);
+            walletRepository.save(wallet);
+
+            log.info("Payout initiated: requestId={} amount={} driver={}", requestId, amount, driverEmail);
+
+        } catch (Exception e) {
+            settlement.setStatus("FAILED");
+            settlement.setFailureReason(e.getMessage());
+            settlementRepository.save(settlement);
+
+            payoutRequest.setStatus("FAILED");
+            payoutRequest.setFailureReason(e.getMessage());
+            payoutRequestRepository.save(payoutRequest);
+
+            log.error("Payout failed: requestId={} error={}", requestId, e.getMessage());
+        }
+
         return toSettlementResponse(account, settlement);
     }
 
@@ -156,35 +176,30 @@ public class PayoutService {
         }
 
         payoutRequestRepository.findByRequestId(transferId).ifPresent(pr -> {
-            if ("SUCCESS".equals(pr.getStatus())) return; // already processed
+            if ("SUCCESS".equals(pr.getStatus())) return;
+
+            WalletSettlement settlement = pr.getWalletSettlement();
 
             if ("SUCCESS".equalsIgnoreCase(transferStatus)) {
                 pr.setStatus("SUCCESS");
-                pr.setCfTransferId(transferId);
                 payoutRequestRepository.save(pr);
-
-                settlementRepository.findById(pr.getWalletSettlement().getId()).ifPresent(s -> {
-                    s.setStatus("SUCCESS");
-                    s.setCfTransferId(transferId);
-                    settlementRepository.save(s);
-                });
+                settlement.setStatus("SUCCESS");
+                settlement.setCfTransferId(transferId);
+                settlementRepository.save(settlement);
                 log.info("Payout webhook SUCCESS: transferId={}", transferId);
 
             } else if ("FAILED".equalsIgnoreCase(transferStatus) || "REVERSED".equalsIgnoreCase(transferStatus)) {
                 pr.setStatus("FAILED");
-                pr.setFailureReason("Cashfree webhook status: " + transferStatus);
+                pr.setFailureReason("Cashfree status: " + transferStatus);
                 payoutRequestRepository.save(pr);
+                settlement.setStatus("FAILED");
+                settlement.setFailureReason("Cashfree status: " + transferStatus);
+                settlementRepository.save(settlement);
 
-                settlementRepository.findById(pr.getWalletSettlement().getId()).ifPresent(s -> {
-                    s.setStatus("FAILED");
-                    s.setFailureReason("Cashfree webhook status: " + transferStatus);
-                    settlementRepository.save(s);
-
-                    // Refund wallet balance on failure
-                    walletRepository.findByUserId(pr.getDriver().getId()).ifPresent(w -> {
-                        w.setBalance(w.getBalance().add(pr.getAmount()));
-                        walletRepository.save(w);
-                    });
+                // Refund wallet on failure
+                walletRepository.findByUserId(pr.getDriver().getId()).ifPresent(w -> {
+                    w.setBalance(w.getBalance().add(pr.getAmount()));
+                    walletRepository.save(w);
                 });
                 log.warn("Payout webhook FAILED: transferId={}", transferId);
             }
@@ -205,7 +220,79 @@ public class PayoutService {
                 .toList();
     }
 
-    // ─── Helpers ────────────────────────────────────────────────────────────────
+    // ─── Cashfree v2 helpers ─────────────────────────────────────────────────────
+
+    private void ensureBeneficiary(WebClient client, DriverBankAccount account, String driverEmail) {
+        Map<String, Object> instrumentDetails = new LinkedHashMap<>();
+        instrumentDetails.put("bank_account_number", account.getAccountNumber());
+        instrumentDetails.put("bank_ifsc", account.getIfscCode());
+
+        Map<String, Object> contactDetails = new LinkedHashMap<>();
+        contactDetails.put("beneficiary_email", driverEmail);
+        contactDetails.put("beneficiary_phone", "9999999999");
+        contactDetails.put("beneficiary_country_code", "+91");
+        contactDetails.put("beneficiary_address", "India");
+        contactDetails.put("beneficiary_city", "India");
+        contactDetails.put("beneficiary_state", "India");
+        contactDetails.put("beneficiary_postal_code", "000000");
+
+        Map<String, Object> body = new LinkedHashMap<>();
+        body.put("beneficiary_id", account.getCfBeneficiaryId());
+        body.put("beneficiary_name", account.getAccountHolderName());
+        body.put("beneficiary_instrument_details", instrumentDetails);
+        body.put("beneficiary_contact_details", contactDetails);
+
+        try {
+            Map<?, ?> resp = client.post().uri("/v2/beneficiary")
+                    .bodyValue(body).retrieve().bodyToMono(Map.class).block();
+            log.info("Beneficiary v2 response: {}", resp);
+        } catch (WebClientResponseException e) {
+            if (e.getStatusCode().value() == 409) {
+                log.info("Beneficiary {} already exists", account.getCfBeneficiaryId());
+            } else {
+                log.warn("Beneficiary v2 error: {} — {}", e.getStatusCode(), e.getResponseBodyAsString());
+            }
+        }
+    }
+
+    @SuppressWarnings("unchecked")
+    private void initiateTransfer(WebClient client, String requestId, BigDecimal amount, String beneficiaryId) {
+        Map<String, Object> beneficiaryDetails = new LinkedHashMap<>();
+        beneficiaryDetails.put("beneficiary_id", beneficiaryId);
+
+        Map<String, Object> body = new LinkedHashMap<>();
+        body.put("transfer_id", requestId);
+        body.put("transfer_amount", amount);
+        body.put("transfer_currency", "INR");
+        body.put("transfer_mode", "banktransfer");
+        body.put("beneficiary_details", beneficiaryDetails);
+        body.put("transfer_remarks", "Carpool wallet settlement");
+
+        Map<String, Object> response = (Map<String, Object>) client
+                .post().uri("/v2/transfers")
+                .bodyValue(body).retrieve().bodyToMono(Map.class).block();
+
+        log.info("Cashfree v2 transfer response: {}", response);
+
+        if (response == null) throw new RuntimeException("Empty response from Cashfree Payouts v2");
+
+        if ("ERROR".equalsIgnoreCase(String.valueOf(response.get("status")))) {
+            throw new RuntimeException("Cashfree error: " + response.get("message") + " (code: " + response.get("subCode") + ")");
+        }
+    }
+
+    private WebClient buildPayoutsClient() {
+        String baseUrl = cashfree.getBaseUrl().contains("sandbox")
+                ? "https://sandbox.cashfree.com/payout"
+                : "https://api.cashfree.com/payout";
+
+        return webClientBuilder.baseUrl(baseUrl)
+                .defaultHeader("x-client-id", cashfree.getPayoutsAppId())
+                .defaultHeader("x-client-secret", cashfree.getPayoutsSecretKey())
+                .defaultHeader("x-api-version", "2024-01-01")
+                .defaultHeader("Content-Type", "application/json")
+                .build();
+    }
 
     private boolean payoutsConfigured() {
         String id = cashfree.getPayoutsAppId();

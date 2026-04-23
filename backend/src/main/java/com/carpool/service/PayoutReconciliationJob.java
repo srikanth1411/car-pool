@@ -74,11 +74,6 @@ public class PayoutReconciliationJob {
             s.setStatus("SUCCESS");
             s.setCfTransferId(pr.getRequestId());
             settlementRepository.save(s);
-
-            walletRepository.findByUserId(pr.getDriver().getId()).ifPresent(w -> {
-                w.setBalance(w.getBalance().subtract(pr.getAmount()).max(BigDecimal.ZERO));
-                walletRepository.save(w);
-            });
         });
 
         log.info("Reconciliation SUCCESS: requestId={}", pr.getRequestId());
