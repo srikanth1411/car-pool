@@ -52,4 +52,11 @@ public class PayoutController {
     public ResponseEntity<List<SettlementResponse>> getHistory(@AuthenticationPrincipal UserDetails user) {
         return ResponseEntity.ok(payoutService.getSettlementHistory(user.getUsername()));
     }
+
+    @PostMapping("/webhook")
+    @Operation(summary = "Cashfree Payouts v2 webhook — receives transfer status updates (no auth)")
+    public ResponseEntity<Void> payoutWebhook(@RequestBody String rawBody) {
+        payoutService.handlePayoutWebhook(rawBody);
+        return ResponseEntity.ok().build();
+    }
 }
