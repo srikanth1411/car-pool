@@ -227,64 +227,51 @@ public class PayoutService {
                 .toList();
     }
 
-    // ─── Cashfree v2 helpers ─────────────────────────────────────────────────────
+    // ─── Cashfree Payouts v1 helpers ────────────────────────────────────────────
 
     private void ensureBeneficiary(WebClient client, DriverBankAccount account, String driverEmail) {
-        Map<String, Object> instrumentDetails = new LinkedHashMap<>();
-        instrumentDetails.put("bank_account_number", account.getAccountNumber());
-        instrumentDetails.put("bank_ifsc", account.getIfscCode());
-
-        Map<String, Object> contactDetails = new LinkedHashMap<>();
-        contactDetails.put("beneficiary_email", driverEmail);
-        contactDetails.put("beneficiary_phone", "9999999999");
-        contactDetails.put("beneficiary_country_code", "+91");
-        contactDetails.put("beneficiary_address", "India");
-        contactDetails.put("beneficiary_city", "India");
-        contactDetails.put("beneficiary_state", "India");
-        contactDetails.put("beneficiary_postal_code", "000000");
-
         Map<String, Object> body = new LinkedHashMap<>();
-        body.put("beneficiary_id", account.getCfBeneficiaryId());
-        body.put("beneficiary_name", account.getAccountHolderName());
-        body.put("beneficiary_instrument_details", instrumentDetails);
-        body.put("beneficiary_contact_details", contactDetails);
+        body.put("beneId", account.getCfBeneficiaryId());
+        body.put("name", account.getAccountHolderName());
+        body.put("email", driverEmail);
+        body.put("phone", "9999999999");
+        body.put("address1", "India");
+        body.put("bankAccount", account.getAccountNumber());
+        body.put("ifsc", account.getIfscCode());
 
         try {
-            Map<?, ?> resp = client.post().uri("/v2/beneficiary")
+            Map<?, ?> resp = client.post().uri("/v1/addBeneficiary")
                     .bodyValue(body).retrieve().bodyToMono(Map.class).block();
-            log.info("Beneficiary v2 response: {}", resp);
+            log.info("Add beneficiary response: {}", resp);
         } catch (WebClientResponseException e) {
-            if (e.getStatusCode().value() == 409) {
+            String body2 = e.getResponseBodyAsString();
+            if (body2.contains("already") || body2.contains("409") || body2.contains("BNF_EXISTS")) {
                 log.info("Beneficiary {} already exists", account.getCfBeneficiaryId());
             } else {
-                log.warn("Beneficiary v2 error: {} — {}", e.getStatusCode(), e.getResponseBodyAsString());
+                log.warn("Add beneficiary error: {} — {}", e.getStatusCode(), body2);
             }
         }
     }
 
     @SuppressWarnings("unchecked")
     private void initiateTransfer(WebClient client, String requestId, BigDecimal amount, String beneficiaryId) {
-        Map<String, Object> beneficiaryDetails = new LinkedHashMap<>();
-        beneficiaryDetails.put("beneficiary_id", beneficiaryId);
-
         Map<String, Object> body = new LinkedHashMap<>();
-        body.put("transfer_id", requestId);
-        body.put("transfer_amount", amount);
-        body.put("transfer_currency", "INR");
-        body.put("transfer_mode", "banktransfer");
-        body.put("beneficiary_details", beneficiaryDetails);
-        body.put("transfer_remarks", "Carpool wallet settlement");
+        body.put("amount", amount);
+        body.put("transferId", requestId);
+        body.put("transferMode", "banktransfer");
+        body.put("beneId", beneficiaryId);
+        body.put("remarks", "Carpool wallet settlement");
 
         Map<String, Object> response = (Map<String, Object>) client
-                .post().uri("/v2/transfers")
+                .post().uri("/v1/requestTransfer")
                 .bodyValue(body).retrieve().bodyToMono(Map.class).block();
 
-        log.info("Cashfree v2 transfer response: {}", response);
+        log.info("Cashfree transfer response: {}", response);
 
-        if (response == null) throw new RuntimeException("Empty response from Cashfree Payouts v2");
+        if (response == null) throw new RuntimeException("Empty response from Cashfree Payouts");
 
         if ("ERROR".equalsIgnoreCase(String.valueOf(response.get("status")))) {
-            throw new RuntimeException("Cashfree error: " + response.get("message") + " (code: " + response.get("subCode") + ")");
+            throw new RuntimeException("Cashfree error: " + response.get("message") + " (subCode: " + response.get("subCode") + ")");
         }
     }
 
