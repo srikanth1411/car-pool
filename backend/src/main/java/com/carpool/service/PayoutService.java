@@ -287,16 +287,15 @@ public class PayoutService {
                 ? "https://sandbox.cashfree.com/payout"
                 : "https://api.cashfree.com/payout";
 
-        // Step 1: get a short-lived Bearer token from /v2/authorize
+        // Step 1: get Bearer token via v1/authorize (v2/authorize not supported on sandbox)
         WebClient authClient = webClientBuilder.baseUrl(baseUrl)
-                .defaultHeader("x-client-id", cashfree.getPayoutsAppId())
-                .defaultHeader("x-client-secret", cashfree.getPayoutsSecretKey())
-                .defaultHeader("x-api-version", "2024-01-01")
+                .defaultHeader("X-Client-Id", cashfree.getPayoutsAppId())
+                .defaultHeader("X-Client-Secret", cashfree.getPayoutsSecretKey())
                 .defaultHeader("Content-Type", "application/json")
                 .build();
 
         Map<String, Object> authResp = (Map<String, Object>) authClient
-                .post().uri("/v2/authorize")
+                .post().uri("/v1/authorize")
                 .retrieve().bodyToMono(Map.class).block();
 
         log.info("Payouts authorize response: {}", authResp);
@@ -305,7 +304,7 @@ public class PayoutService {
             throw new RuntimeException("Cashfree Payouts authorization failed: " + authResp);
         }
 
-        String token = String.valueOf(authResp.get("token"));
+        String token = String.valueOf(((Map<?, ?>) authResp.get("data")).get("token"));
 
         // Step 2: build client with Bearer token for subsequent calls
         return webClientBuilder.baseUrl(baseUrl)

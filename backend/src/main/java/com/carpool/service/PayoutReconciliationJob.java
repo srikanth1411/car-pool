@@ -100,13 +100,12 @@ public class PayoutReconciliationJob {
                 : "https://api.cashfree.com/payout";
 
         WebClient authClient = webClientBuilder.baseUrl(baseUrl)
-                .defaultHeader("x-client-id", cashfree.getPayoutsAppId())
-                .defaultHeader("x-client-secret", cashfree.getPayoutsSecretKey())
-                .defaultHeader("x-api-version", "2024-01-01")
+                .defaultHeader("X-Client-Id", cashfree.getPayoutsAppId())
+                .defaultHeader("X-Client-Secret", cashfree.getPayoutsSecretKey())
                 .build();
 
         Map<String, Object> authResp = (Map<String, Object>) authClient
-                .post().uri("/v2/authorize")
+                .post().uri("/v1/authorize")
                 .retrieve().bodyToMono(Map.class).block();
 
         if (authResp == null || !"SUCCESS".equalsIgnoreCase(String.valueOf(authResp.get("status")))) {
@@ -114,7 +113,7 @@ public class PayoutReconciliationJob {
             throw new RuntimeException("Payouts auth failed");
         }
 
-        String token = String.valueOf(authResp.get("token"));
+        String token = String.valueOf(((Map<?, ?>) authResp.get("data")).get("token"));
 
         return webClientBuilder.baseUrl(baseUrl)
                 .defaultHeader("Authorization", "Bearer " + token)
